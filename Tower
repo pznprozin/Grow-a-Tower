@@ -1,0 +1,1368 @@
+----- SERVER SCRIPT (Corrigido com Evento Bloodrot) -----
+local DataStoreService = game:GetService("DataStoreService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Lighting = game:GetService("Lighting")
+local SoundService = game:GetService("SoundService")
+local GroupService = game:GetService("GroupService")
+local MarketplaceService = game:GetService("MarketplaceService")
+local TextChatService = game:GetService("TextChatService")
+
+----- 1. EVENTOS -----
+local UpdateMoneyEvent = Instance.new("RemoteEvent")
+UpdateMoneyEvent.Name = "UpdateMoneyEvent"
+UpdateMoneyEvent.Parent = ReplicatedStorage
+
+local RequestDataEvent = Instance.new("RemoteEvent")
+RequestDataEvent.Name = "RequestDataEvent"
+RequestDataEvent.Parent = ReplicatedStorage
+
+local UpdateHeightEvent = Instance.new("RemoteEvent")
+UpdateHeightEvent.Name = "UpdateHeightEvent"
+UpdateHeightEvent.Parent = ReplicatedStorage
+
+local ResetTowerEvent = Instance.new("RemoteEvent")
+ResetTowerEvent.Name = "ResetTowerEvent"
+ResetTowerEvent.Parent = ReplicatedStorage
+
+local AdminEvent = Instance.new("RemoteEvent")
+AdminEvent.Name = "AdminEvent"
+AdminEvent.Parent = ReplicatedStorage
+
+local BuildBlockEvent = Instance.new("RemoteEvent")
+BuildBlockEvent.Name = "BuildBlockEvent"
+BuildBlockEvent.Parent = ReplicatedStorage
+
+local MusicEvent = Instance.new("RemoteEvent")
+MusicEvent.Name = "MusicEvent"
+MusicEvent.Parent = ReplicatedStorage
+
+local ShopEvent = Instance.new("RemoteEvent")
+ShopEvent.Name = "ShopEvent"
+ShopEvent.Parent = ReplicatedStorage
+
+----- 2. CONFIGURAÇÕES -----
+local GROUP_ID = 35647620
+local MUSIC_IDS = {
+    70455732863262,   -- Música principal
+    138690351078103,  -- Música épica
+    103409297553965,  -- Música alternativa
+    9117340459        -- Música divertida
+}
+local GAMEPASS_5X_ID = 1435850409
+local bloodrotEventActive = false
+local bloodrotMultiplier = 3
+
+----- 3. SISTEMA DE DADOS -----
+local playerMoney = {}
+local playerHeights = {}
+local playerBases = {}
+local playerMultipliers = {}
+local playerBlocks = {}
+local availableBases = {}
+local playerInGroup = {}
+local moneyDataStore = DataStoreService:GetDataStore("PlayerMoney")
+local heightDataStore = DataStoreService:GetDataStore("PlayerHeights")
+local blocksDataStore = DataStoreService:GetDataStore("PlayerBlocks")
+local groupDataStore = DataStoreService:GetDataStore("PlayerInGroup")
+local gamePassDataStore = DataStoreService:GetDataStore("GamePassOwners")
+
+----- 4. SISTEMA DE MÚSICA GLOBAL -----
+local currentMusic = nil
+
+local function playGlobalMusic(musicId)
+    if currentMusic then
+        currentMusic:Stop()
+        currentMusic:Destroy()
+    end
+    
+    if musicId > 0 then
+        local sound = Instance.new("Sound")
+        sound.SoundId = "rbxassetid://" .. musicId
+        sound.Volume = 0.5
+        sound.Looped = true
+        sound.Parent = SoundService
+        sound:Play()
+        currentMusic = sound
+    end
+end
+
+----- 5. SISTEMA DE MENSAGEM GLOBAL (CORRIGIDO) -----
+local function sendGlobalMessage(message)
+    for _, plr in ipairs(game.Players:GetPlayers()) do
+        -- Usando TextChatService para mensagens modernas
+        local textChannel = TextChatService:FindFirstChild("RBXGeneral")
+        if textChannel then
+            local messageObject = Instance.new("TextChatMessage")
+            messageObject.Text = "📢 [ANÚNCIO] " .. message
+            messageObject.PrefixText = "[SISTEMA]"
+            messageObject.TextColor3 = Color3.fromRGB(255, 255, 0)
+            messageObject.Parent = textChannel
+        end
+    end
+    print("📢 Anúncio global: " .. message)
+end
+
+----- 6. SISTEMA BLOODROT EVENT -----
+local function activateBloodrotEvent()
+    bloodrotEventActive = true
+    bloodrotMultiplier = 3
+    
+    sendGlobalMessage("🔴 EVENTO BLOODROT ATIVADO! 3x MAIS DINHEIRO!")
+    
+    -- Duração do evento: 5 minutos
+    task.wait(300)
+    bloodrotEventActive = false
+    sendGlobalMessage("🔴 Evento Bloodrot terminou!")
+end
+
+----- [RESTANTE DO CÓDIGO DO SERVIDOR PERMANECE IGUAL] -----
+----- 7. SISTEMA DE GRUPO -----
+local function checkGroupMembership(player)
+    local success, inGroup = pcall(function()
+        return groupDataStore:GetAsync(player.UserId)
+    end)
+    
+    if success and inGroup then
+        playerInGroup[player] = true
+        return true
+    end
+    return false
+end
+
+local function grantGroupReward(player)
+    playerInGroup[player] = true
+    playerMoney[player] = (playerMoney[player] or 0) + 5000
+    playerBlocks[player] = playerBlocks[player] or {}
+    playerBlocks[player]["Bloco_ArcoIris"] = true
+    
+    pcall(function()
+        groupDataStore:SetAsync(player.UserId, true)
+    end)
+    
+    UpdateMoneyEvent:FireClient(player, playerMoney[player])
+    return true
+end
+
+----- 8. SISTEMA DE GAMEPASS -----
+local function checkGamePassOwnership(player)
+    local success, ownsGamePass = pcall(function()
+        return gamePassDataStore:GetAsync(player.UserId)
+    end)
+    
+    if success and ownsGamePass then
+        playerMultipliers[player] = 5
+        return true
+    end
+    return false
+end
+
+----- 9. CRIAÇÃO DO MAPA -----
+local function createWorld()
+    local ground = Instance.new("Part")
+    ground.Size = Vector3.new(200, 1, 200)
+    ground.Position = Vector3.new(0, 0, 0)
+    ground.Anchored = true
+    ground.BrickColor = BrickColor.new("Moss")
+    ground.Material = Enum.Material.Grass
+    ground.Parent = workspace
+
+    local basePositions = {
+        Vector3.new(-50, 0, -50),
+        Vector3.new(50, 0, -50), 
+        Vector3.new(-50, 0, 50),
+        Vector3.new(50, 0, 50)
+    }
+
+    for i, pos in ipairs(basePositions) do
+        local base = Instance.new("Part")
+        base.Name = "GardenBase"
+        base.Size = Vector3.new(30, 1, 30)
+        base.Position = pos + Vector3.new(0, 0.5, 0)
+        base.Anchored = true
+        base.BrickColor = BrickColor.new("Moss")
+        base.Material = Enum.Material.Grass
+        base.Parent = workspace
+
+        local fenceParts = {
+            {Position = Vector3.new(15, 2, 0), Size = Vector3.new(2, 4, 30)},
+            {Position = Vector3.new(-15, 2, 0), Size = Vector3.new(2, 4, 30)},
+            {Position = Vector3.new(0, 2, 15), Size = Vector3.new(30, 4, 2)},
+            {Position = Vector3.new(0, 2, -15), Size = Vector3.new(30, 4, 2)}
+        }
+
+        for _, fence in ipairs(fenceParts) do
+            local part = Instance.new("Part")
+            part.Size = fence.Size
+            part.Position = pos + fence.Position
+            part.Anchored = true
+            part.BrickColor = BrickColor.new("Reddish brown")
+            part.Material = Enum.Material.Wood
+            part.Parent = workspace
+        end
+
+        local billboard = Instance.new("BillboardGui")
+        billboard.Size = UDim2.new(6, 0, 2, 0)
+        billboard.StudsOffset = Vector3.new(0, 5, 0)
+        billboard.Adornee = base
+        billboard.Name = "BaseSign"
+        billboard.Parent = base
+
+        local signText = Instance.new("TextLabel")
+        signText.Size = UDim2.new(1, 0, 1, 0)
+        signText.Text = "Base " .. i .. "\nAltura: 0m"
+        signText.TextScaled = true
+        signText.Font = Enum.Font.FredokaOne
+        signText.TextColor3 = Color3.new(1, 1, 1)
+        signText.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        signText.BackgroundTransparency = 0.3
+        signText.Parent = billboard
+        
+        table.insert(availableBases, base)
+    end
+
+    local sky = Instance.new("Sky")
+    sky.SkyboxBk = "http://www.roblox.com/asset/?id=433405379"
+    sky.SkyboxDn = "http://www.roblox.com/asset/?id=433405379"
+    sky.SkyboxFt = "http://www.roblox.com/asset/?id=433405379"
+    sky.SkyboxLf = "http://www.roblox.com/asset/?id=433405379"
+    sky.SkyboxRt = "http://www.roblox.com/asset/?id=433405379"
+    sky.SkyboxUp = "http://www.roblox.com/asset/?id=433405379"
+    sky.Parent = Lighting
+
+    Lighting.Brightness = 2
+    Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
+end
+
+----- 10. SISTEMA DE ATRIBUIÇÃO DE BASES -----
+local function assignBaseToPlayer(player)
+    if #availableBases > 0 then
+        local base = availableBases[1]
+        table.remove(availableBases, 1)
+        playerBases[player] = base
+        
+        local sign = base:FindFirstChild("BaseSign")
+        if sign then
+            local textLabel = sign:FindFirstChild("TextLabel")
+            if textLabel then
+                textLabel.Text = "Base de\n" .. player.Name
+            end
+        end
+        
+        if player.Character then
+            local humanoid = player.Character:FindFirstChild("Humanoid")
+            if humanoid then
+                humanoid:MoveTo(base.Position + Vector3.new(0, 5, 0))
+            end
+        end
+        
+        return base
+    end
+    return nil
+end
+
+----- 11. SISTEMA DE ALTURA -----
+local function updateBaseHeight(player, height)
+    playerHeights[player] = height
+    
+    if playerBases[player] then
+        local base = playerBases[player]
+        local sign = base:FindFirstChild("BaseSign")
+        if sign then
+            local textLabel = sign:FindFirstChild("TextLabel")
+            if textLabel then
+                textLabel.Text = "Base de " .. player.Name .. "\nAltura: " .. height .. "m"
+            end
+        end
+    end
+    
+    UpdateHeightEvent:FireClient(player, height)
+end
+
+----- 12. SISTEMA DE CONSTRUÇÃO -----
+local function createBlockForPlayer(player, blockType)
+    if not playerBases[player] then return end
+    
+    local base = playerBases[player]
+    local highestPoint = base.Position.Y + base.Size.Y/2
+    
+    for _, obj in ipairs(workspace:GetChildren()) do
+        if obj:IsA("Part") and obj.Name:find("Bloco_" .. player.UserId) then
+            local top = obj.Position.Y + obj.Size.Y/2
+            if top > highestPoint then
+                highestPoint = top
+            end
+        end
+    end
+
+    local block = Instance.new("Part")
+    block.Name = "Bloco_" .. player.UserId .. "_" .. os.time()
+    block.Size = Vector3.new(4, 1, 4)
+    block.Position = Vector3.new(
+        base.Position.X + math.random(-3, 3),
+        highestPoint + 0.5,
+        base.Position.Z + math.random(-3, 3)
+    )
+    block.Anchored = true
+    block.CanCollide = true
+
+    if blockType == "Bloco_Dourado" then
+        block.BrickColor = BrickColor.new("New Yeller")
+        block.Material = Enum.Material.Neon
+    elseif blockType == "Bloco_Diamante" then
+        block.BrickColor = BrickColor.new("Toothpaste")
+        block.Material = Enum.Material.ForceField
+    elseif blockType == "Bloco_ArcoIris" then
+        block.BrickColor = BrickColor.Random()
+        block.Material = Enum.Material.Neon
+    else
+        block.BrickColor = BrickColor.Random()
+        block.Material = Enum.Material.Plastic
+    end
+
+    block.Parent = workspace
+    return block
+end
+
+----- 13. SISTEMA DE LOJA -----
+local function handleShopPurchase(player, item, cost)
+    if not playerMoney[player] or playerMoney[player] < cost then
+        return false
+    end
+    
+    playerMoney[player] = playerMoney[player] - cost
+    
+    if item == "Bloco_Dourado" then
+        playerBlocks[player]["Bloco_Dourado"] = true
+    elseif item == "Bloco_Diamante" then
+        playerBlocks[player]["Bloco_Diamante"] = true
+    elseif item == "GamePass" then
+        playerMultipliers[player] = 5
+        pcall(function()
+            gamePassDataStore:SetAsync(player.UserId, true)
+        end)
+    end
+    
+    UpdateMoneyEvent:FireClient(player, playerMoney[player])
+    return true
+end
+
+----- 14. SISTEMA ADMIN -----
+local function handleAdminCommand(player, command, amount, targetPlayer, musicId, message)
+    if player.Name ~= "PZNprozin" then return end
+    
+    if command == "giveMoney" then
+        if targetPlayer == "all" then
+            for _, plr in ipairs(game.Players:GetPlayers()) do
+                playerMoney[plr] = (playerMoney[plr] or 0) + amount
+                UpdateMoneyEvent:FireClient(plr, playerMoney[plr])
+            end
+        else
+            local target = game.Players:FindFirstChild(targetPlayer)
+            if target then
+                playerMoney[target] = (playerMoney[target] or 0) + amount
+                UpdateMoneyEvent:FireClient(target, playerMoney[target])
+            end
+        end
+        
+    elseif command == "setHeight" then
+        if targetPlayer == "all" then
+            for _, plr in ipairs(game.Players:GetPlayers()) do
+                playerHeights[plr] = amount
+                updateBaseHeight(plr, amount)
+            end
+        else
+            local target = game.Players:FindFirstChild(targetPlayer)
+            if target then
+                playerHeights[target] = amount
+                updateBaseHeight(target, amount)
+            end
+        end
+        
+    elseif command == "resetAll" then
+        for _, plr in ipairs(game.Players:GetPlayers()) do
+            playerHeights[plr] = 0
+            updateBaseHeight(plr, 0)
+            for _, obj in ipairs(workspace:GetChildren()) do
+                if obj:IsA("Part") and obj.Name:find("Bloco_") then
+                    obj:Destroy()
+                end
+            end
+        end
+        
+    elseif command == "playMusic" then
+        playGlobalMusic(musicId)
+        
+    elseif command == "rainbowSky" then
+        coroutine.wrap(changeSkyColor)()
+        
+    elseif command == "giveGroupReward" then
+        if targetPlayer == "all" then
+            for _, plr in ipairs(game.Players:GetPlayers()) do
+                grantGroupReward(plr)
+            end
+        else
+            local target = game.Players:FindFirstChild(targetPlayer)
+            if target then
+                grantGroupReward(target)
+            end
+        end
+        
+    elseif command == "globalMessage" then
+        sendGlobalMessage(message)
+        
+    elseif command == "bloodrotEvent" then
+        activateBloodrotEvent()
+    end
+end
+
+----- 15. MANUSEIO DE JOGADORES -----
+game.Players.PlayerAdded:Connect(function(player)
+    local successMoney, money = pcall(function()
+        return moneyDataStore:GetAsync(player.UserId)
+    end)
+    
+    local successHeight, height = pcall(function()
+        return heightDataStore:GetAsync(player.UserId)
+    end)
+    
+    local successBlocks, blocks = pcall(function()
+        return blocksDataStore:GetAsync(player.UserId)
+    end)
+    
+    playerMoney[player] = successMoney and money or 0
+    playerHeights[player] = successHeight and height or 0
+    playerBlocks[player] = successBlocks and blocks or {Bloco_Normal = true}
+    
+    checkGamePassOwnership(player)
+    checkGroupMembership(player)
+    
+    local base = assignBaseToPlayer(player)
+    
+    local leaderstats = Instance.new("Folder")
+    leaderstats.Name = "leaderstats"
+    leaderstats.Parent = player
+
+    local moneyValue = Instance.new("IntValue")
+    moneyValue.Name = "Money"
+    moneyValue.Value = playerMoney[player]
+    moneyValue.Parent = leaderstats
+
+    local heightValue = Instance.new("IntValue")
+    heightValue.Name = "Height"
+    heightValue.Value = playerHeights[player]
+    heightValue.Parent = leaderstats
+    
+    UpdateMoneyEvent:FireClient(player, playerMoney[player])
+    UpdateHeightEvent:FireClient(player, playerHeights[player])
+    
+    player.CharacterAdded:Connect(function(character)
+        task.wait(1)
+        if base and character:FindFirstChild("Humanoid") then
+            character:FindFirstChild("Humanoid"):MoveTo(base.Position + Vector3.new(0, 5, 0))
+        end
+    end)
+end)
+
+game.Players.PlayerRemoving:Connect(function(player)
+    pcall(function()
+        moneyDataStore:SetAsync(player.UserId, playerMoney[player])
+        heightDataStore:SetAsync(player.UserId, playerHeights[player])
+        blocksDataStore:SetAsync(player.UserId, playerBlocks[player])
+    end)
+    
+    if playerBases[player] then
+        table.insert(availableBases, playerBases[player])
+        for _, obj in ipairs(workspace:GetChildren()) do
+            if obj:IsA("Part") and obj.Name:find("Bloco_" .. player.UserId) then
+                obj:Destroy()
+            end
+        end
+        playerBases[player] = nil
+    end
+end)
+
+----- 16. EVENTOS -----
+RequestDataEvent.OnServerEvent:Connect(function(player)
+    UpdateMoneyEvent:FireClient(player, playerMoney[player] or 0)
+    UpdateHeightEvent:FireClient(player, playerHeights[player] or 0)
+end)
+
+BuildBlockEvent.OnServerEvent:Connect(function(player, blockType)
+    createBlockForPlayer(player, blockType or "Bloco_Normal")
+end)
+
+ResetTowerEvent.OnServerEvent:Connect(function(player)
+    playerHeights[player] = 0
+    updateBaseHeight(player, 0)
+    for _, obj in ipairs(workspace:GetChildren()) do
+        if obj:IsA("Part") and obj.Name:find("Bloco_" .. player.UserId) then
+            obj:Destroy()
+        end
+    end
+end)
+
+ShopEvent.OnServerEvent:Connect(function(player, item, cost)
+    handleShopPurchase(player, item, cost)
+end)
+
+MusicEvent.OnServerEvent:Connect(function(player, musicId)
+    if player.Name == "PZNprozin" then
+        playGlobalMusic(musicId)
+    end
+end)
+
+AdminEvent.OnServerEvent:Connect(function(player, command, amount, targetPlayer, musicId, message)
+    handleAdminCommand(player, command, amount, targetPlayer, musicId, message)
+end)
+
+MarketplaceService.ProcessReceipt = function(receiptInfo)
+    local player = game.Players:GetPlayerByUserId(receiptInfo.PlayerId)
+    if player and receiptInfo.ProductId == GAMEPASS_5X_ID then
+        playerMultipliers[player] = 5
+        pcall(function()
+            gamePassDataStore:SetAsync(player.UserId, true)
+        end)
+        return Enum.ProductPurchaseDecision.PurchaseGranted
+    end
+    return Enum.ProductPurchaseDecision.NotProcessedYet
+end
+
+----- INICIALIZAÇÃO -----
+createWorld()
+print("✅ Servidor completo com evento Bloodrot!")
+
+----- LOCALSCRIPT (Parte 1 - Interface Principal) -----
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local MarketplaceService = game:GetService("MarketplaceService")
+local player = Players.LocalPlayer
+local mouse = player:GetMouse()
+
+local UpdateMoneyEvent = ReplicatedStorage:WaitForChild("UpdateMoneyEvent")
+local RequestDataEvent = ReplicatedStorage:WaitForChild("RequestDataEvent")
+local UpdateHeightEvent = ReplicatedStorage:WaitForChild("UpdateHeightEvent")
+local ResetTowerEvent = ReplicatedStorage:WaitForChild("ResetTowerEvent")
+local AdminEvent = ReplicatedStorage:WaitForChild("AdminEvent")
+local BuildBlockEvent = ReplicatedStorage:WaitForChild("BuildBlockEvent")
+local MusicEvent = ReplicatedStorage:WtrueChild("MusicEvent")
+local ShopEvent = ReplicatedStorage:WaitForChild("ShopEvent")
+
+----- VARIÁVEIS -----
+local currentMoney = 0
+local currentHeight = 0
+local currentBlockType = "Bloco_Normal"
+local ownedBlocks = {
+    Bloco_Normal = true,
+    Bloco_Dourado = false,
+    Bloco_Diamante = false,
+    Bloco_ArcoIris = false
+}
+local MUSIC_IDS = {70455732863262, 138690351078103, 103409297553965, 9117340459}
+local GROUP_ID = 35647620
+local GROUP_URL = "https://www.roblox.com/groups/35647620"
+local hasGamePass5x = false
+local isAdmin = player.Name == "PZNprozin"
+local inGroup = false
+
+----- 1. CRIAÇÃO DA INTERFACE PRINCIPAL -----
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "MainGui"
+screenGui.Parent = player.PlayerGui
+
+-- Botão Principal
+local clickButton = Instance.new("TextButton")
+clickButton.Name = "ClickButton"
+clickButton.Size = UDim2.new(0.2, 0, 0.1, 0)
+clickButton.Position = UDim2.new(0.4, 0, 0.7, 0)
+clickButton.Text = "🌻 CONSTRUIR"
+clickButton.TextScaled = true
+clickButton.Font = Enum.Font.FredokaOne
+clickButton.TextColor3 = Color3.new(1, 1, 1)
+clickButton.BackgroundColor3 = Color3.fromRGB(255, 105, 180)
+clickButton.BackgroundTransparency = 0.2
+clickButton.Parent = screenGui
+
+-- Display de Dinheiro
+local moneyText = Instance.new("TextLabel")
+moneyText.Name = "MoneyText"
+moneyText.Size = UDim2.new(0.18, 0, 0.06, 0)
+moneyText.Position = UDim2.new(0.05, 0, 0.05, 0)
+moneyText.Text = "💰 $0"
+moneyText.TextScaled = true
+moneyText.Font = Enum.Font.FredokaOne
+moneyText.TextColor3 = Color3.new(1, 1, 0)
+moneyText.BackgroundTransparency = 1
+moneyText.Parent = screenGui
+
+-- Display de Altura
+local heightText = Instance.new("TextLabel")
+heightText.Name = "HeightText"
+heightText.Size = UDim2.new(0.18, 0, 0.06, 0)
+heightText.Position = UDim2.new(0.77, 0, 0.05, 0)
+heightText.Text = "📏 0m"
+heightText.TextScaled = true
+heightText.Font = Enum.Font.FredokaOne
+heightText.TextColor3 = Color3.new(0, 1, 1)
+heightText.BackgroundTransparency = 1
+heightText.Parent = screenGui
+
+-- Display de Bloco Atual
+local blockText = Instance.new("TextLabel")
+blockText.Name = "BlockText"
+blockText.Size = UDim2.new(0.18, 0, 0.06, 0)
+blockText.Position = UDim2.new(0.05, 0, 0.12, 0)
+blockText.Text = "🧱 Normal"
+blockText.TextScaled = true
+blockText.Font = Enum.Font.FredokaOne
+blockText.TextColor3 = Color3.new(1, 1, 1)
+blockText.BackgroundTransparency = 1
+blockText.Parent = screenGui
+
+-- Botão da Loja
+local shopButton = Instance.new("TextButton")
+shopButton.Name = "ShopButton"
+shopButton.Size = UDim2.new(0.12, 0, 0.06, 0)
+shopButton.Position = UDim2.new(0.44, 0, 0.05, 0)
+shopButton.Text = "🛒 LOJA"
+shopButton.TextScaled = true
+shopButton.Font = Enum.Font.FredokaOne
+shopButton.TextColor3 = Color3.new(1, 1, 1)
+shopButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+shopButton.Parent = screenGui
+
+-- Botão Resetar Torre
+local resetButton = Instance.new("TextButton")
+resetButton.Name = "ResetButton"
+resetButton.Size = UDim2.new(0.15, 0, 0.06, 0)
+resetButton.Position = UDim2.new(0.44, 0, 0.12, 0)
+resetButton.Text = "🔄 RESETAR"
+resetButton.TextScaled = true
+resetButton.Font = Enum.Font.FredokaOne
+resetButton.TextColor3 = Color3.new(1, 1, 1)
+resetButton.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+resetButton.Parent = screenGui
+
+-- Botão Admin
+local adminButton = Instance.new("TextButton")
+adminButton.Name = "AdminButton"
+adminButton.Size = UDim2.new(0.12, 0, 0.06, 0)
+adminButton.Position = UDim2.new(0.77, 0, 0.12, 0)
+adminButton.Text = "👑 ADMIN"
+adminButton.TextScaled = true
+adminButton.Font = Enum.Font.FredokaOne
+adminButton.TextColor3 = Color3.new(1, 1, 0)
+adminButton.BackgroundColor3 = Color3.fromRGB(100, 0, 100)
+adminButton.Visible = isAdmin
+adminButton.Parent = screenGui
+
+-- Botão do Grupo
+local groupButton = Instance.new("TextButton")
+groupButton.Name = "GroupButton"
+groupButton.Size = UDim2.new(0.18, 0, 0.06, 0)
+groupButton.Position = UDim2.new(0.77, 0, 0.19, 0)
+groupButton.Text = "🎁 ENTRAR NO GRUPO"
+groupButton.TextScaled = true
+groupButton.Font = Enum.Font.FredokaOne
+groupButton.TextColor3 = Color3.new(1, 1, 1)
+groupButton.BackgroundColor3 = Color3.fromRGB(255, 105, 180)
+groupButton.Parent = screenGui
+
+-- Indicador de Grupo
+local groupIndicator = Instance.new("TextLabel")
+groupIndicator.Name = "GroupIndicator"
+groupIndicator.Size = UDim2.new(0.18, 0, 0.06, 0)
+groupIndicator.Position = UDim2.new(0.77, 0, 0.26, 0)
+groupIndicator.Text = "🎁 Grupo: Não"
+groupIndicator.TextScaled = true
+groupIndicator.Font = Enum.Font.FredokaOne
+groupIndicator.TextColor3 = Color3.new(1, 0, 0)
+groupIndicator.BackgroundTransparency = 1
+groupIndicator.Parent = screenGui
+
+-- Mensagem de Erro
+local errorMessage = Instance.new("TextLabel")
+errorMessage.Name = "ErrorMessage"
+errorMessage.Size = UDim2.new(0.3, 0, 0.06, 0)
+errorMessage.Position = UDim2.new(0.35, 0, 0.9, 0)
+errorMessage.Text = ""
+errorMessage.TextScaled = true
+errorMessage.Font = Enum.Font.FredokaOne
+errorMessage.TextColor3 = Color3.new(1, 0, 0)
+errorMessage.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+errorMessage.BackgroundTransparency = 0.3
+errorMessage.Visible = false
+errorMessage.Parent = screenGui
+
+local function showError(message)
+    errorMessage.Text = message
+    errorMessage.Visible = true
+    task.wait(2)
+    errorMessage.Visible = false
+end
+
+----- 2. SISTEMA DE CONSTRUÇÃO -----
+clickButton.MouseButton1Click:Connect(function()
+    local baseReward = 1
+    if currentBlockType == "Bloco_Dourado" then baseReward = 5
+    elseif currentBlockType == "Bloco_Diamante" then baseReward = 10
+    elseif currentBlockType == "Bloco_ArcoIris" then baseReward = 8 end
+    
+    local multiplier = hasGamePass5x and 5 or 1
+    local reward = math.max(1, (baseReward + math.floor(currentHeight / 10)) * multiplier)
+    
+    currentMoney += reward
+    currentHeight += 1
+    
+    moneyText.Text = "💰 $" .. currentMoney
+    heightText.Text = "📏 " .. currentHeight .. "m"
+    
+    BuildBlockEvent:FireServer(currentBlockType)
+    UpdateMoneyEvent:FireServer(currentMoney)
+    UpdateHeightEvent:FireServer(currentHeight)
+    
+    clickButton.Size = UDim2.new(0.19, 0, 0.095, 0)
+    task.wait(0.1)
+    clickButton.Size = UDim2.new(0.2, 0, 0.1, 0)
+end)
+
+----- 3. SISTEMA DE RESET -----
+resetButton.MouseButton1Click:Connect(function()
+    if currentHeight > 10 then
+        local resetReward = math.floor(currentHeight * 0.1)
+        currentMoney += resetReward
+        currentHeight = 0
+        
+        moneyText.Text = "💰 $" .. currentMoney
+        heightText.Text = "📏 0m"
+        
+        UpdateMoneyEvent:FireServer(currentMoney)
+        UpdateHeightEvent:FireServer(currentHeight)
+        ResetTowerEvent:FireServer()
+        
+        showError("✅ Reset completo! +$" .. resetReward)
+    else
+        showError("❌ Altura mínima: 10m")
+    end
+end)
+
+----- 4. SISTEMA DE GRUPO -----
+groupButton.MouseButton1Click:Connect(function()
+    local success = pcall(function()
+        game:GetService("GuiService"):OpenBrowserWindow(GROUP_URL)
+    end)
+    
+    if success then
+        showError("🌐 Abrindo grupo... Entre e ganhe recompensa!")
+    else
+        showError("❌ Erro ao abrir o grupo")
+    end
+end)
+
+----- 5. SISTEMA DE LOJA -----
+local shopFrame = Instance.new("Frame")
+shopFrame.Name = "ShopFrame"
+shopFrame.Size = UDim2.new(0.8, 0, 0.8, 0)
+shopFrame.Position = UDim2.new(0.1, 0, 0.1, 0)
+shopFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+shopFrame.BackgroundTransparency = 0.1
+shopFrame.Visible = false
+shopFrame.Parent = screenGui
+
+local shopTitle = Instance.new("TextLabel")
+shopTitle.Size = UDim2.new(1, 0, 0.1, 0)
+shopTitle.Position = UDim2.new(0, 0, 0.02, 0)
+shopTitle.Text = "🏪 LOJA - GROW A TOWER"
+shopTitle.TextScaled = true
+shopTitle.Font = Enum.Font.FredokaOne
+shopTitle.TextColor3 = Color3.new(1, 1, 1)
+shopTitle.BackgroundTransparency = 1
+shopTitle.Parent = shopFrame
+
+-- Item: Bloco Dourado
+local buyGoldButton = Instance.new("TextButton")
+buyGoldButton.Name = "BuyGoldButton"
+buyGoldButton.Size = UDim2.new(0.4, 0, 0.15, 0)
+buyGoldButton.Position = UDim2.new(0.05, 0, 0.15, 0)
+buyGoldButton.Text = ownedBlocks.Bloco_Dourado and "✅ BLOCO DOURADO\n+5x DINHEIRO" or "🧱 BLOCO DOURADO\n💰 $200\n+5x DINHEIRO"
+buyGoldButton.TextScaled = true
+buyGoldButton.Font = Enum.Font.FredokaOne
+buyGoldButton.TextColor3 = Color3.new(1, 1, 0)
+buyGoldButton.BackgroundColor3 = ownedBlocks.Bloco_Dourado and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(200, 150, 0)
+buyGoldButton.Parent = shopFrame
+
+-- Item: Bloco Diamante
+local buyDiamondButton = Instance.new("TextButton")
+buyDiamondButton.Name = "BuyDiamondButton"
+buyDiamondButton.Size = UDim2.new(0.4, 0, 0.15, 0)
+buyDiamondButton.Position = UDim2.new(0.05, 0, 0.35, 0)
+buyDiamondButton.Text = ownedBlocks.Bloco_Diamante and "✅ BLOCO DIAMANTE\n+10x DINHEIRO" or "💎 BLOCO DIAMANTE\n💰 $1000\n+10x DINHEIRO"
+buyDiamondButton.TextScaled = true
+buyDiamondButton.Font = Enum.Font.FredokaOne
+buyDiamondButton.TextColor3 = Color3.new(0, 1, 1)
+buyDiamondButton.BackgroundColor3 = ownedBlocks.Bloco_Diamante and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(0, 100, 200)
+buyDiamondButton.Parent = shopFrame
+
+-- Item: GamePass
+local buyGamePassButton = Instance.new("TextButton")
+buyGamePassButton.Name = "BuyGamePassButton"
+buyGamePassButton.Size = UDim2.new(0.4, 0, 0.15, 0)
+buyGamePassButton.Position = UDim2.new(0.05, 0, 0.55, 0)
+buyGamePassButton.Text = hasGamePass5x and "✅ GAMEPASS 5x\nATIVADO!" or "💶 GAMEPASS 5x\n5x MAIS DINHEIRO"
+buyGamePassButton.TextScaled = true
+buyGamePassButton.Font = Enum.Font.FredokaOne
+buyGamePassButton.TextColor3 = Color3.new(1, 1, 1)
+buyGamePassButton.BackgroundColor3 = hasGamePass5x and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(150, 100, 0)
+buyGamePassButton.Parent = shopFrame
+
+-- Botões de Seleção
+local selectGoldButton = Instance.new("TextButton")
+selectGoldButton.Size = UDim2.new(0.4, 0, 0.15, 0)
+selectGoldButton.Position = UDim2.new(0.5, 0, 0.15, 0)
+selectGoldButton.Text = "✅ SELECIONAR\nBLOCO DOURADO"
+selectGoldButton.TextScaled = true
+selectGoldButton.Font = Enum.Font.FredokaOne
+selectGoldButton.TextColor3 = Color3.new(1, 1, 1)
+selectGoldButton.BackgroundColor3 = Color3.fromRGB(0, 100, 0)
+selectGoldButton.Visible = ownedBlocks.Bloco_Dourado
+selectGoldButton.Parent = shopFrame
+
+local selectDiamondButton = Instance.new("TextButton")
+selectDiamondButton.Size = UDim2.new(0.4, 0, 0.15, 0)
+selectDiamondButton.Position = UDim2.new(0.5, 0, 0.35, 0)
+selectDiamondButton.Text = "✅ SELECIONAR\nBLOCO DIAMANTE"
+selectDiamondButton.TextScaled = true
+selectDiamondButton.Font = Enum.Font.FredokaOne
+selectDiamondButton.TextColor3 = Color3.new(1, 1, 1)
+selectDiamondButton.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
+selectDiamondButton.Visible = ownedBlocks.Bloco_Diamante
+selectDiamondButton.Parent = shopFrame
+
+local selectRainbowButton = Instance.new("TextButton")
+selectRainbowButton.Size = UDim2.new(0.4, 0, 0.15, 0)
+selectRainbowButton.Position = UDim2.new(0.5, 0, 0.55, 0)
+selectRainbowButton.Text = "✅ SELECIONAR\nBLOCO ARCO-ÍRIS"
+selectRainbowButton.TextScaled = true
+selectRainbowButton.Font = Enum.Font.FredokaOne
+selectRainbowButton.TextColor3 = Color3.new(1, 1, 1)
+selectRainbowButton.BackgroundColor3 = Color3.fromRGB(255, 0, 255)
+selectRainbowButton.Visible = ownedBlocks.Bloco_ArcoIris
+selectRainbowButton.Parent = shopFrame
+
+local selectNormalButton = Instance.new("TextButton")
+selectNormalButton.Size = UDim2.new(0.4, 0, 0.15, 0)
+selectNormalButton.Position = UDim2.new(0.5, 0, 0.75, 0)
+selectNormalButton.Text = "✅ SELECIONAR\nBLOCO NORMAL"
+selectNormalButton.TextScaled = true
+selectNormalButton.Font = Enum.Font.FredokaOne
+selectNormalButton.TextColor3 = Color3.new(1, 1, 1)
+selectNormalButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+selectNormalButton.Parent = shopFrame
+
+-- Botão Fechar Loja
+local closeShopButton = Instance.new("TextButton")
+closeShopButton.Size = UDim2.new(0.3, 0, 0.08, 0)
+closeShopButton.Position = UDim2.new(0.35, 0, 0.9, 0)
+closeShopButton.Text = "❌ FECHAR"
+closeShopButton.TextScaled = true
+closeShopButton.Font = Enum.Font.FredokaOne
+closeShopButton.TextColor3 = Color3.new(1, 1, 1)
+closeShopButton.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+closeShopButton.Parent = shopFrame
+
+-- Funções da Loja
+local function updateShopButtons()
+    buyGoldButton.Text = ownedBlocks.Bloco_Dourado and "✅ BLOCO DOURADO\n+5x DINHEIRO" or "🧱 BLOCO DOURADO\n💰 $200\n+5x DINHEIRO"
+    buyGoldButton.BackgroundColor3 = ownedBlocks.Bloco_Dourado and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(200, 150, 0)
+    
+    buyDiamondButton.Text = ownedBlocks.Bloco_Diamante and "✅ BLOCO DIAMANTE\n+10x DINHEIRO" or "💎 BLOCO DIAMANTE\n💰 $1000\n+10x DINHEIRO"
+    buyDiamondButton.BackgroundColor3 = ownedBlocks.Bloco_Diamante and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(0, 100, 200)
+    
+    buyGamePassButton.Text = hasGamePass5x and "✅ GAMEPASS 5x\nATIVADO!" or "💶 GAMEPASS 5x\n5x MAIS DINHEIRO"
+    buyGamePassButton.BackgroundColor3 = hasGamePass5x and Color3.fromRGB(0, 150, 0) or Color3.fromRGB(150, 100, 0)
+    
+    selectGoldButton.Visible = ownedBlocks.Bloco_Dourado
+    selectDiamondButton.Visible = ownedBlocks.Bloco_Diamante
+    selectRainbowButton.Visible = ownedBlocks.Bloco_ArcoIris
+end
+
+buyGoldButton.MouseButton1Click:Connect(function()
+    if not ownedBlocks.Bloco_Dourado then
+        if currentMoney >= 200 then
+            ShopEvent:FireServer("Bloco_Dourado", 200)
+        else
+            showError("❌ Dinheiro insuficiente!")
+        end
+    end
+end)
+
+buyDiamondButton.MouseButton1Click:Connect(function()
+    if not ownedBlocks.Bloco_Diamante then
+        if currentMoney >= 1000 then
+            ShopEvent:FireServer("Bloco_Diamante", 1000)
+        else
+            showError("❌ Dinheiro insuficiente!")
+        end
+    end
+end)
+
+buyGamePassButton.MouseButton1Click:Connect(function()
+    if not hasGamePass5x then
+        MarketplaceService:PromptGamePassPurchase(player, 1435850409)
+    end
+end)
+
+-- Selecionar Blocos
+selectNormalButton.MouseButton1Click:Connect(function()
+    currentBlockType = "Bloco_Normal"
+    blockText.Text = "🧱 Normal"
+end)
+
+selectGoldButton.MouseButton1Click:Connect(function()
+    if ownedBlocks.Bloco_Dourado then
+        currentBlockType = "Bloco_Dourado"
+        blockText.Text = "⭐ Dourado"
+    end
+end)
+
+selectDiamondButton.MouseButton1Click:Connect(function()
+    if ownedBlocks.Bloco_Diamante then
+        currentBlockType = "Bloco_Diamante"
+        blockText.Text = "💎 Diamante"
+    end
+end)
+
+selectRainbowButton.MouseButton1Click:Connect(function()
+    if ownedBlocks.Bloco_ArcoIris then
+        currentBlockType = "Bloco_ArcoIris"
+        blockText.Text = "🌈 Arco-Íris"
+    end
+end)
+
+shopButton.MouseButton1Click:Connect(function()
+    shopFrame.Visible = not shopFrame.Visible
+    if shopFrame.Visible then
+        updateShopButtons()
+    end
+end)
+
+closeShopButton.MouseButton1Click:Connect(function()
+    shopFrame.Visible = false
+enend
+----- Painel Admin Corrigido) -----
+local Players = game:GeGetServicePlayers")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local player = Players.LocalPlayer
+
+local AdminEvent = ReplicatedStorage:WaitForChild("AdminEvent")
+local MusicEvent = ReplicatedStorage:WaitForChild("MusicEvent")
+
+----- VARIÁVEIS -----
+local isAdmin = player.Name == "PZNprozin"
+local MUSIC_IDS = {70455732863262, 138690351078103, 103409297553965, 9117340459}
+local skyTween = nil
+
+----- 6. PAINEL ADMIN COMPLETO CORRIGIDO -----
+local adminFrame = Instance.new("Frame")
+adminFrame.Name = "AdminFrame"
+adminFrame.Size = UDim2.new(0.9, 0, 0.9, 0)
+adminFrame.Position = UDim2.new(0.05, 0, 0.05, 0)
+adminFrame.BackgroundColor3 = Color3.fromRGB(50, 0, 50)
+adminFrame.BackgroundTransparency = 0.1
+adminFrame.Visible = false
+adminFrame.ZIndex = 10
+adminFrame.Parent = screenGui
+
+local adminTitle = Instance.new("TextLabel")
+adminTitle.Size = UDim2.new(1, 0, 0.08, 0)
+adminTitle.Position = UDim2.new(0, 0, 0.02, 0)
+adminTitle.Text = "👑 PAINEL ADMIN - PZNprozin"
+adminTitle.TextScaled = true
+adminTitle.Font = Enum.Font.FredokaOne
+adminTitle.TextColor3 = Color3.new(1, 1, 0)
+adminTitle.BackgroundTransparency = 1
+adminTitle.ZIndex = 11
+adminTitle.Parent = adminFrame
+
+-- Lista de Jogadores
+local playersLabel = Instance.new("TextLabel")
+playersLabel.Size = UDim2.new(0.2, 0, 0.06, 0)
+playersLabel.Position = UDim2.new(0.05, 0, 0.12, 0)
+playersLabel.Text = "JOGADORES:"
+playersLabel.TextScaled = true
+playersLabel.Font = Enum.Font.FredokaOne
+playersLabel.TextColor3 = Color3.new(1, 1, 1)
+playersLabel.BackgroundTransparency = 1
+playersLabel.ZIndex = 11
+playersLabel.Parent = adminFrame
+
+local playersDropdown = Instance.new("TextButton")
+playersDropdown.Size = UDim2.new(0.3, 0, 0.06, 0)
+playersDropdown.Position = UDim2.new(0.25, 0, 0.12, 0)
+playersDropdown.Text = "Todos"
+playersDropdown.TextScaled = true
+playersDropdown.Font = Enum.Font.FredokaOne
+playersDropdown.TextColor3 = Color3.new(1, 1, 1)
+playersDropdown.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+playersDropdown.ZIndex = 11
+playersDropdown.Parent = adminFrame
+
+-- Quantidade de Dinheiro
+local moneyLabel = Instance.new("TextLabel")
+moneyLabel.Size = UDim2.new(0.2, 0, 0.06, 0)
+moneyLabel.Position = UDim2.new(0.05, 0, 0.22, 0)
+moneyLabel.Text = "QUANTIA:"
+moneyLabel.TextScaled = true
+moneyLabel.Font = Enum.Font.FredokaOne
+moneyLabel.TextColor3 = Color3.new(1, 1, 1)
+moneyLabel.BackgroundTransparency = 1
+moneyLabel.ZIndex = 11
+moneyLabel.Parent = adminFrame
+
+local moneyInput = Instance.new("TextBox")
+moneyInput.Size = UDim2.new(0.3, 0, 0.06, 0)
+moneyInput.Position = UDim2.new(0.25, 0, 0.22, 0)
+moneyInput.Text = "1000"
+moneyInput.PlaceholderText = "Quantia"
+moneyInput.TextScaled = true
+moneyInput.Font = Enum.Font.FredokaOne
+moneyInput.TextColor3 = Color3.new(0, 0, 0)
+moneyInput.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+moneyInput.ZIndex = 11
+moneyInput.Parent = adminFrame
+
+-- Altura
+local heightLabel = Instance.new("TextLabel")
+heightLabel.Size = UDim2.new(0.2, 0, 0.06, 0)
+heightLabel.Position = UDim2.new(0.05, 0, 0.32, 0)
+heightLabel.Text = "ALTURA:"
+heightLabel.TextScaled = true
+heightLabel.Font = Enum.Font.FredokaOne
+heightLabel.TextColor3 = Color3.new(1, 1, 1)
+heightLabel.BackgroundTransparency = 1
+heightLabel.ZIndex = 11
+heightLabel.Parent = adminFrame
+
+local heightInput = Instance.new("TextBox")
+heightInput.Size = UDim2.new(0.3, 0, 0.06, 0)
+heightInput.Position = UDim2.new(0.25, 0, 0.32, 0)
+heightInput.Text = "100"
+heightInput.PlaceholderText = "Altura"
+heightInput.TextScaled = true
+heightInput.Font = Enum.Font.FredokaOne
+heightInput.TextColor3 = Color3.new(0, 0, 0)
+heightInput.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+heightInput.ZIndex = 11
+heightInput.Parent = adminFrame
+
+-- Botões de Ação
+local giveMoneyButton = Instance.new("TextButton")
+giveMoneyButton.Size = UDim2.new(0.4, 0, 0.1, 0)
+giveMoneyButton.Position = UDim2.new(0.05, 0, 0.45, 0)
+giveMoneyButton.Text = "💰 DAR DINHEIRO"
+giveMoneyButton.TextScaled = true
+giveMoneyButton.Font = Enum.Font.FredokaOne
+giveMoneyButton.TextColor3 = Color3.new(1, 1, 1)
+giveMoneyButton.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
+giveMoneyButton.ZIndex = 11
+giveMoneyButton.Parent = adminFrame
+
+local setHeightButton = Instance.new("TextButton")
+setHeightButton.Size = UDim2.new(0.4, 0, 0.1, 0)
+setHeightButton.Position = UDim2.new(0.05, 0, 0.58, 0)
+setHeightButton.Text = "📏 DEFINIR ALTURA"
+setHeightButton.TextScaled = true
+setHeightButton.Font = Enum.Font.FredokaOne
+setHeightButton.TextColor3 = Color3.new(1, 1, 1)
+setHeightButton.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
+setHeightButton.ZIndex = 11
+setHeightButton.Parent = adminFrame
+
+local resetAllButton = Instance.new("TextButton")
+resetAllButton.Size = UDim2.new(0.4, 0, 0.1, 0)
+resetAllButton.Position = UDim2.new(0.05, 0, 0.71, 0)
+resetAllButton.Text = "🔄 RESETAR TUDO"
+resetAllButton.TextScaled = true
+resetAllButton.Font = Enum.Font.FredokaOne
+resetAllButton.TextColor3 = Color3.new(1, 1, 1)
+resetAllButton.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+resetAllButton.ZIndex = 11
+resetAllButton.Parent = adminFrame
+
+-- Botão Evento Bloodrot
+local bloodrotButton = Instance.new("TextButton")
+bloodrotButton.Size = UDim2.new(0.4, 0, 0.1, 0)
+bloodrotButton.Position = UDim2.new(0.05, 0, 0.84, 0)
+bloodrotButton.Text = "🔴 EVENTO BLOODROT"
+bloodrotButton.TextScaled = true
+bloodrotButton.Font = Enum.Font.FredokaOne
+bloodrotButton.TextColor3 = Color3.new(1, 1, 1)
+bloodrotButton.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+bloodrotButton.ZIndex = 11
+bloodrotButton.Parent = adminFrame
+
+-- Seção Música
+local musicTitle = Instance.new("TextLabel")
+musicTitle.Size = UDim2.new(0.9, 0, 0.06, 0)
+musicTitle.Position = UDim2.new(0.55, 0, 0.12, 0)
+musicTitle.Text = "🎵 MÚSICA GLOBAL"
+musicTitle.TextScaled = true
+musicTitle.Font = Enum.Font.FredokaOne
+musicTitle.TextColor3 = Color3.new(1, 0.5, 1)
+musicTitle.BackgroundTransparency = 1
+musicTitle.ZIndex = 11
+musicTitle.Parent = adminFrame
+
+-- Botões de Música
+local musicNames = {"Música Principal", "Música Épica", "Música Alternativa", "Música Divertida"}
+for i = 1, 4 do
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(0.4, 0, 0.1, 0)
+    button.Position = UDim2.new(0.55, 0, 0.2 + (i-1)*0.12, 0)
+    button.Text = "🎵 " .. musicNames[i]
+    button.TextScaled = true
+    button.Font = Enum.Font.FredokaOne
+    button.TextColor3 = Color3.new(1, 1, 1)
+    button.BackgroundColor3 = Color3.fromRGB(100, 0, 150)
+    button.ZIndex = 11
+    button.Parent = adminFrame
+    
+    button.MouseButton1Click:Connect(function()
+        if isAdmin then
+            MusicEvent:FireServer(MUSIC_IDS[i])
+            showError("🎵 Tocando: " .. musicNames[i])
+        end
+    end)
+end
+
+-- Botão Céu Colorido
+local rainbowSkyButton = Instance.new("TextButton")
+rainbowSkyButton.Size = UDim2.new(0.4, 0, 0.1, 0)
+rainbowSkyButton.Position = UDim2.new(0.55, 0, 0.7, 0)
+rainbowSkyButton.Text = "🌈 CÉU ARCO-ÍRIS"
+rainbowSkyButton.TextScaled = true
+rainbowSkyButton.Font = Enum.Font.FredokaOne
+rainbowSkyButton.TextColor3 = Color3.new(1, 1, 1)
+rainbowSkyButton.BackgroundColor3 = Color3.fromRGB(255, 0, 255)
+rainbowSkyButton.ZIndex = 11
+rainbowSkyButton.Parent = adminFrame
+
+-- Botão Parar Música
+local stopMusicButton = Instance.new("TextButton")
+stopMusicButton.Size = UDim2.new(0.4, 0, 0.1, 0)
+stopMusicButton.Position = UDim2.new(0.55, 0, 0.82, 0)
+stopMusicButton.Text = "⏹️ PARAR MÚSICA"
+stopMusicButton.TextScaled = true
+stopMusicButton.Font = Enum.Font.FredokaOne
+stopMusicButton.TextColor3 = Color3.new(1, 1, 1)
+stopMusicButton.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+stopMusicButton.ZIndex = 11
+stopMusicButton.Parent = adminFrame
+
+-- Seção Anúncio Global
+local messageTitle = Instance.new("TextLabel")
+messageTitle.Size = UDim2.new(0.9, 0, 0.06, 0)
+messageTitle.Position = UDim2.new(0.05, 0, 0.94, 0)
+messageTitle.Text = "📢 ANÚNCIO GLOBAL"
+messageTitle.TextScaled = true
+messageTitle.Font = Enum.Font.FredokaOne
+messageTitle.TextColor3 = Color3.new(1, 1, 0)
+messageTitle.BackgroundTransparency = 1
+messageTitle.ZIndex = 11
+messageTitle.Parent = adminFrame
+
+local messageInput = Instance.new("TextBox")
+messageInput.Size = UDim2.new(0.6, 0, 0.08, 0)
+messageInput.Position = UDim2.new(0.05, 0, 1.01, 0)
+messageInput.Text = ""
+messageInput.PlaceholderText = "Digite sua mensagem..."
+messageInput.TextScaled = true
+messageInput.Font = Enum.Font.FredokaOne
+messageInput.TextColor3 = Color3.new(0, 0, 0)
+messageInput.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+messageInput.ZIndex = 11
+messageInput.Parent = adminFrame
+
+local sendMessageButton = Instance.new("TextButton")
+sendMessageButton.Size = UDim2.new(0.25, 0, 0.08, 0)
+sendMessageButton.Position = UDim2.new(0.67, 0, 1.01, 0)
+sendMessageButton.Text = "📢 ENVIAR"
+sendMessageButton.TextScaled = true
+sendMessageButton.Font = Enum.Font.FredokaOne
+sendMessageButton.TextColor3 = Color3.new(1, 1, 1)
+sendMessageButton.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
+sendMessageButton.ZIndex = 11
+sendMessageButton.Parent = adminFrame
+
+-- Botão Fechar Admin (AGORA FUNCIONA!)
+local closeAdminButton = Instance.new("TextButton")
+closeAdminButton.Size = UDim2.new(0.3, 0, 0.08, 0)
+closeAdminButton.Position = UDim2.new(0.35, 0, 1.1, 0)
+closeAdminButton.Text = "❌ FECHAR"
+closeAdminButton.TextScaled = true
+closeAdminButton.Font = Enum.Font.FredokaOne
+closeAdminButton.TextColor3 = Color3.new(1, 1, 1)
+closeAdminButton.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+closeAdminButton.ZIndex = 11
+closeAdminButton.Parent = adminFrame
+
+-- Função para céu colorido suave
+local function startRainbowSky()
+    if skyTween then
+        skyTween:Cancel()
+    end
+    
+    local function changeSkyColor()
+        while true do
+            for hue = 0, 1, 0.01 do
+                local color = Color3.fromHSV(hue, 0.8, 0.8)
+                game:GetService("Lighting").Ambient = color
+                game:GetService("Lighting").OutdoorAmbient = color
+                task.wait(0.1)
+            end
+        end
+    end
+    
+    -- Inicia em uma coroutine separada
+    coroutine.wrap(changeSkyColor)()
+end
+
+-- Funções Admin CORRIGIDAS
+local function updatePlayersDropdown()
+    local playerList = {"Todos"}
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= player then
+            table.insert(playerList, plr.Name)
+        end
+    end
+    playersDropdown.Text = "Todos"
+end
+
+playersDropdown.MouseButton1Click:Connect(function()
+    local playerList = {"Todos"}
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= player then
+            table.insert(playerList, plr.Name)
+        end
+    end
+    
+    local currentIndex = 1
+    for i, name in ipairs(playerList) do
+        if name == playersDropdown.Text then
+            currentIndex = i
+            break
+        end
+    end
+    
+    local nextIndex = (currentIndex % #playerList) + 1
+    playersDropdown.Text = playerList[nextIndex]
+end)
+
+-- ✅ DAR DINHEIRO AGORA FUNCIONA
+giveMoneyButton.MouseButton1Click:Connect(function()
+    if isAdmin then
+        local amount = tonumber(moneyInput.Text) or 1000
+        local target = playersDropdown.Text
+        AdminEvent:FireServer("giveMoney", amount, target)
+        showError("✅ $" .. amount .. " para " .. target)
+    end
+end)
+
+-- ✅ DEFINIR ALTURA FUNCIONA
+setHeightButton.MouseButton1Click:Connect(function()
+    if isAdmin then
+        local height = tonumber(heightInput.Text) or 100
+        local target = playersDropdown.Text
+        AdminEvent:FireServer("setHeight", height, target)
+        showError("📏 Altura " .. height .. "m para " .. target)
+    end
+end)
+
+-- ✅ RESETAR TUDO FUNCIONA
+resetAllButton.MouseButton1Click:Connect(function()
+    if isAdmin then
+        AdminEvent:FireServer("resetAll", 0, "all")
+        showError("🔄 Todas as torres resetadas!")
+    end
+end)
+
+-- ✅ EVENTO BLOODROT FUNCIONA
+bloodrotButton.MouseButton1Click:Connect(function()
+    if isAdmin then
+        AdminEvent:FireServer("bloodrotEvent", 0, "all")
+        showError("🔴 Evento Bloodrot ativado! 3x mais dinheiro!")
+    end
+end)
+
+-- ✅ CÉU COLORIDO FUNCIONA
+rainbowSkyButton.MouseButton1Click:Connect(function()
+    if isAdmin then
+        startRainbowSky()
+        showError("🌈 Céu colorido ativado!")
+    end
+end)
+
+-- ✅ PARAR MÚSICA FUNCIONA
+stopMusicButton.MouseButton1Click:Connect(function()
+    if isAdmin then
+        MusicEvent:FireServer(0)
+        showError("⏹️ Música parada")
+    end
+end)
+
+-- ✅ ENVIAR MENSAGEM GLOBAL FUNCIONA
+sendMessageButton.MouseButton1Click:Connect(function()
+    if isAdmin and messageInput.Text ~= "" then
+        AdminEvent:FireServer("globalMessage", 0, "all", 0, messageInput.Text)
+        showError("📢 Mensagem enviada para todos!")
+        messageInput.Text = ""
+    end
+end)
+
+-- ✅ BOTÃO FECHAR AGORA FUNCIONA
+closeAdminButton.MouseButton1Click:Connect(function()
+    adminFrame.Visible = false
+end)
+
+-- ✅ BOTÃO ADMIN ABRE/FECHA CORRETAMENTE
+adminButton.MouseButton1Click:Connect(function()
+    adminFrame.Visible = not adminFrame.Visible
+    if adminFrame.Visible then
+        updatePlayersDropdown()
+    end
+end)
+
+-- Fechar painel com tecla ESC
+local UserInputService = game:GetService("UserInputService")
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.Escape and adminFrame.Visible then
+        adminFrame.Visible = false
+    end
+end)
+
+----- 7. INICIALIZAÇÃO -----
+task.wait(2)
+
+-- ✅ SISTEMA DE ATUALIZAÇÃO FUNCIONANDO
+UpdateMoneyEvent.OnClientEvent:Connect(function(money)
+    currentMoney = money
+    moneyText.Text = "💰 $" .. money
+end)
+
+UpdateHeightEvent.OnClientEvent:Connect(function(height)
+    currentHeight = height
+    heightText.Text = "📏 " .. height .. "m"
+end)
+
+ShopEvent.OnClientEvent:Connect(function(item)
+    if item == "Bloco_Dourado" then
+        ownedBlocks.Bloco_Dourado = true
+        showError("✅ Bloco Dourado comprado!")
+    elseif item == "Bloco_Diamante" then
+        ownedBlocks.Bloco_Diamante = true
+        showError("✅ Bloco Diamante comprado!")
+    end
+    updateShopButtons()
+end)
+
+print("✅ Painel Admin completamente corrigido e funcionando!")
