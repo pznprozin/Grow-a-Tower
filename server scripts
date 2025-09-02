@@ -1,0 +1,1116 @@
+----- SERVER SCRIPT (Parte 1/6) -----
+local DataStoreService = game:GetService("DataStoreService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Lighting = game:GetService("Lighting")
+local SoundService = game:GetService("SoundService")
+local GroupService = game:GetService("GroupService")
+local MarketplaceService = game:GetService("MarketplaceService")
+local TextChatService = game:GetService("TextChatService")
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+
+----- 1. EVENTOS -----
+local events = {}
+
+-- Função segura para criar eventos
+local function createRemoteEvent(eventName)
+    local event = Instance.new("RemoteEvent")
+    event.Name = eventName
+    event.Parent = ReplicatedStorage
+    events[eventName] = event
+    return event
+end
+
+-- Lista de eventos necessários
+local eventNames = {
+    "UpdateMoneyEvent", "RequestDataEvent", "UpdateHeightEvent", 
+    "ResetTowerEvent", "AdminEvent", "BuildBlockEvent", 
+    "MusicEvent", "ShopEvent", "NotificationEvent", 
+    "GroupRewardEvent", "CheckGroupEvent", "EquipBlockEvent",
+    "BlockSelectEvent", "GamepassEvent", "RainbowEvent",
+    "TradeEvent"
+}
+
+-- Criar todos os eventos
+for _, eventName in ipairs(eventNames) do
+    createRemoteEvent(eventName)
+end
+
+----- 2. CONFIGURAÇÕES -----
+local GROUP_ID = 35647620
+local MUSIC_IDS = {
+    70455732863262,   -- Música principal
+    138690351078103,  -- Música épica
+    103409297553965,  -- Música alternativa
+    9117340459,       -- Música divertida
+    142376088,        -- Música do Taco
+    9117340459,       -- Música "Minha Alma Minha Essência"
+    0                 -- Parar música
+}
+local GAMEPASS_5X_ID = 1435850409
+local bloodrotEventActive = false
+local bloodrotMultiplier = 3
+local rainbowEventActive = false
+
+-- Multiplicadores de dinheiro para cada bloco
+local BLOCK_MULTIPLIERS = {
+    Bloco_Normal = 1,
+    Bloco_Dourado = 5,
+    Bloco_Diamante = 10,
+    Bloco_Rubi = 20,
+    Bloco_Esmeralda = 30,
+    Bloco_Safira = 40,
+    Bloco_Cristal = 50,
+    Bloco_Titanio = 75,
+    Bloco_Platina = 100,
+    Bloco_Universo = 150,
+    Bloco_Galaxia = 200,
+    Bloco_ArcoIris = 8
+}
+
+local SHOP_ITEMS = {
+    Bloco_Dourado = 200,
+    Bloco_Diamante = 1000,
+    Bloco_Rubi = 5000,
+    Bloco_Esmeralda = 10000,
+    Bloco_Safira = 20000,
+    Bloco_Cristal = 50000,
+    Bloco_Titanio = 100000,
+    Bloco_Platina = 250000,
+    Bloco_Universo = 500000,
+    Bloco_Galaxia = 1000000
+}
+
+----- 3. SISTEMA DE DADOS -----
+local playerMoney = {}
+local playerHeights = {}
+local playerBases = {}
+local playerMultipliers = {}
+local playerBlocks = {}
+local playerEquippedBlock = {}
+local availableBases = {}
+local playerInGroup = {}
+local playerTradeRequests = {} -- Novo: Sistema de trocas
+
+local dataStores = {
+    moneyDataStore = DataStoreService:GetDataStore("PlayerMoney"),
+    heightDataStore = DataStoreService:GetDataStore("PlayerHeights"),
+    blocksDataStore = DataStoreService:GetDataStore("PlayerBlocks"),
+    equippedDataStore = DataStoreService:GetDataStore("PlayerEquipped"),
+    groupDataStore = DataStoreService:GetDataStore("PlayerInGroup"),
+    gamePassDataStore = DataStoreService:GetDataStore("GamePassOwners")
+}
+
+----- 4. SISTEMA DE MÚSICA GLOBAL (CORRIGIDO) -----
+local currentMusic = nil
+local rainbowSkyActive = false
+
+local function playGlobalMusic(musicId)
+    if currentMusic then
+        currentMusic:Stop()
+        currentMusic:Destroy()
+        currentMusic = nil
+    end
+    
+    if musicId > 0 and musicId <= #MUSIC_IDS then
+        local soundId = MUSIC_IDS[musicId]
+        if soundId > 0 then
+            local sound = Instance.new("Sound")
+            sound.SoundId = "rbxassetid://" .. soundId
+            sound.Volume = 0.7
+            sound.Looped = true
+            sound.Parent = SoundService
+            sound:Play()
+            currentMusic = sound
+            
+            -- Notificar todos os jogadores
+            local musicNames = {
+                "Música Principal",
+                "Música Épica", 
+                "Música Alternativa",
+                "Música Divertida",
+                "Música do Taco",
+                "Minha Alma Minha Essência"
+            }
+            local musicName = musicNames[musicId] or "Desconhecida"
+            events.NotificationEvent:FireAllClients("🎵 Tocando agora: " .. musicName, Color3.fromRGB(255, 255, 0))
+        end
+    elseif musicId == 7 then
+        -- Parar música
+        events.NotificationEvent:FireAllClients("🎵 Música parada", Color3.fromRGB(255, 255, 0))
+    end
+end
+
+----- 5. SISTEMA DE MENSAGEM GLOBAL -----
+local function sendGlobalMessage(message, sender)
+    local senderName = sender and sender.Name or "Sistema"
+    
+    -- Usando TextChatService para mensagens modernas
+    local textChannel = TextChatService:FindFirstChild("RBXGeneral") or TextChatService:FindFirstChildOfClass("TextChannel")
+    if textChannel then
+        local messageObject = Instance.new("TextChatMessage")
+        messageObject.Text = "📢 [ANÚNCIO] " .. message
+        messageObject.PrefixText = "[" .. senderName .. "]"
+        messageObject.TextColor3 = Color3.fromRGB(255, 255, 0)
+        messageObject.Parent = textChannel
+    end
+    
+    -- Também enviar para todos os jogadores via RemoteEvent
+    events.NotificationEvent:FireAllClients("📢 " .. message, Color3.fromRGB(255, 255, 0))
+    
+    print("📢 Anúncio global de " .. senderName .. ": " .. message)
+end
+
+----- 6. SISTEMA BLOODROT EVENT -----
+local function activateBloodrotEvent()
+    if bloodrotEventActive then return end
+    
+    bloodrotEventActive = true
+    bloodrotMultiplier = 3
+    
+    sendGlobalMessage("🔴 EVENTO BLOODROT ATIVADO! 3x MAIS DINHEIRO!", nil)
+    
+    -- Efeitos visuais
+    local originalBrightness = Lighting.Brightness
+    local originalAmbient = Lighting.Ambient
+    local originalOutdoorAmbient = Lighting.OutdoorAmbient
+    
+    Lighting.Brightness = 0.8
+    Lighting.Ambient = Color3.fromRGB(100, 0, 0)
+    Lighting.OutdoorAmbient = Color3.fromRGB(100, 0, 0)
+    
+    -- Duração do evento: 5 minutos
+    for i = 300, 0, -1 do
+        if not bloodrotEventActive then break end
+        task.wait(1)
+    end
+    
+    -- Restaurar configurações
+    bloodrotEventActive = false
+    Lighting.Brightness = originalBrightness
+    Lighting.Ambient = originalAmbient
+    Lighting.OutdoorAmbient = originalOutdoorAmbient
+    
+    sendGlobalMessage("🔴 Evento Bloodrot terminou!", nil)
+end
+----- SERVER SCRIPT (Parte 2/6) -----
+
+----- 7. SISTEMA DE GRUPO -----
+local function checkGroupMembership(player)
+    local success, inGroup = pcall(function()
+        return dataStores.groupDataStore:GetAsync(player.UserId)
+    end)
+    
+    if success and inGroup then
+        playerInGroup[player] = true
+        return true
+    end
+    
+    -- Verificar se o jogador está realmente no grupo
+    local success2, isInGroup = pcall(function()
+        return GroupService:IsInGroup(player.UserId, GROUP_ID)
+    end)
+    
+    if success2 and isInGroup then
+        playerInGroup[player] = true
+        pcall(function()
+            dataStores.groupDataStore:SetAsync(player.UserId, true)
+        end)
+        return true
+    end
+    
+    return false
+end
+
+local function grantGroupReward(player)
+    if playerInGroup[player] then
+        events.NotificationEvent:FireClient(player, "❌ Você já recebeu a recompensa do grupo!", Color3.fromRGB(255, 0, 0))
+        return false
+    end
+    
+    local success, isInGroup = pcall(function()
+        return GroupService:IsInGroup(player.UserId, GROUP_ID)
+    end)
+    
+    if not success or not isInGroup then
+        events.NotificationEvent:FireClient(player, "❌ Você precisa entrar no grupo primeiro!", Color3.fromRGB(255, 0, 0))
+        return false
+    end
+    
+    playerInGroup[player] = true
+    playerMoney[player] = (playerMoney[player] or 0) + 5000
+    playerBlocks[player] = playerBlocks[player] or {}
+    playerBlocks[player]["Bloco_ArcoIris"] = true
+    
+    pcall(function()
+        dataStores.groupDataStore:SetAsync(player.UserId, true)
+        dataStores.moneyDataStore:SetAsync(player.UserId, playerMoney[player])
+        dataStores.blocksDataStore:SetAsync(player.UserId, playerBlocks[player])
+    end)
+    
+    events.UpdateMoneyEvent:FireClient(player, playerMoney[player])
+    events.NotificationEvent:FireClient(player, "🎁 Recompensa do grupo recebida: $5000 + Bloco Arco-Íris!", Color3.fromRGB(0, 255, 0))
+    return true
+end
+
+----- 8. SISTEMA DE GAMEPASS -----
+local function checkGamePassOwnership(player)
+    local success, ownsGamePass = pcall(function()
+        return dataStores.gamePassDataStore:GetAsync(player.UserId)
+    end)
+    
+    if success and ownsGamePass then
+        playerMultipliers[player] = 5
+        events.NotificationEvent:FireClient(player, "✅ GamePass 5x ativado!", Color3.fromRGB(0, 255, 0))
+        return true
+    end
+    return false
+end
+
+----- 9. CRIAÇÃO DO MAPA COM 6 BASES -----
+local function createWorld()
+    local ground = Instance.new("Part")
+    ground.Size = Vector3.new(300, 1, 300)
+    ground.Position = Vector3.new(0, 0, 0)
+    ground.Anchored = true
+    ground.BrickColor = BrickColor.new("Moss")
+    ground.Material = Enum.Material.Grass
+    ground.Parent = workspace
+
+    -- 6 bases posicionadas em um hexágono
+    local basePositions = {
+        Vector3.new(-70, 0, 0),      -- Esquerda
+        Vector3.new(70, 0, 0),       -- Direita
+        Vector3.new(-35, 0, 60),     -- Superior esquerdo
+        Vector3.new(35, 0, 60),      -- Superior direito
+        Vector3.new(-35, 0, -60),    -- Inferior esquerdo
+        Vector3.new(35, 0, -60)      -- Inferior direito
+    }
+
+    for i, pos in ipairs(basePositions) do
+        local base = Instance.new("Part")
+        base.Name = "GardenBase"
+        base.Size = Vector3.new(25, 1, 25)
+        base.Position = pos + Vector3.new(0, 0.5, 0)
+        base.Anchored = true
+        base.BrickColor = BrickColor.new("Moss")
+        base.Material = Enum.Material.Grass
+        base.Parent = workspace
+
+        local fenceParts = {
+            {Position = Vector3.new(12.5, 2, 0), Size = Vector3.new(2, 4, 25)},
+            {Position = Vector3.new(-12.5, 2, 0), Size = Vector3.new(2, 4, 25)},
+            {Position = Vector3.new(0, 2, 12.5), Size = Vector3.new(25, 4, 2)},
+            {Position = Vector3.new(0, 2, -12.5), Size = Vector3.new(25, 4, 2)}
+        }
+
+        for _, fence in ipairs(fenceParts) do
+            local part = Instance.new("Part")
+            part.Size = fence.Size
+            part.Position = pos + fence.Position
+            part.Anchored = true
+            part.BrickColor = BrickColor.new("Reddish brown")
+            part.Material = Enum.Material.Wood
+            part.Parent = workspace
+        end
+
+        local billboard = Instance.new("BillboardGui")
+        billboard.Size = UDim2.new(6, 0, 2, 0)
+        billboard.StudsOffset = Vector3.new(0, 5, 0)
+        billboard.Adornee = base
+        billboard.Name = "BaseSign"
+        billboard.Parent = base
+
+        local signText = Instance.new("TextLabel")
+        signText.Size = UDim2.new(1, 0, 1, 0)
+        signText.Text = "Base " .. i .. "\nAltura: 0m"
+        signText.TextScaled = true
+        signText.Font = Enum.Font.FredokaOne
+        signText.TextColor3 = Color3.new(1, 1, 1)
+        signText.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        signText.BackgroundTransparency = 0.3
+        signText.Parent = billboard
+        
+        table.insert(availableBases, base)
+    end
+
+    local sky = Instance.new("Sky")
+    sky.SkyboxBk = "http://www.roblox.com/asset/?id=433405379"
+    sky.SkyboxDn = "http://www.roblox.com/asset/?id=433405379"
+    sky.SkyboxFt = "http://www.roblox.com/asset/?id=433405379"
+    sky.SkyboxLf = "http://www.roblox.com/asset/?id=433405379"
+    sky.SkyboxRt = "http://www.roblox.com/asset/?id=433405379"
+    sky.SkyboxUp = "http://www.roblox.com/asset/?id=433405379"
+    sky.Parent = Lighting
+
+    Lighting.Brightness = 2
+    Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
+end
+
+----- 10. SISTEMA DE ATRIBUIÇÃO DE BASES -----
+local function assignBaseToPlayer(player)
+    if #availableBases > 0 then
+        local base = availableBases[1]
+        table.remove(availableBases, 1)
+        playerBases[player] = base
+        
+        local sign = base:FindFirstChild("BaseSign")
+        if sign then
+            local textLabel = sign:FindFirstChild("TextLabel")
+            if textLabel then
+                textLabel.Text = "Base de\n" .. player.Name
+            end
+        end
+        
+        if player.Character then
+            local humanoid = player.Character:FindFirstChild("Humanoid")
+            if humanoid then
+                humanoid:MoveTo(base.Position + Vector3.new(0, 5, 0))
+            end
+        end
+        
+        return base
+    end
+    return nil
+end
+
+----- 11. SISTEMA DE ALTURA -----
+local function updateBaseHeight(player, height)
+    playerHeights[player] = height
+    
+    if playerBases[player] then
+        local base = playerBases[player]
+        local sign = base:FindFirstChild("BaseSign")
+        if sign then
+            local textLabel = sign:FindFirstChild("TextLabel")
+            if textLabel then
+                textLabel.Text = "Base de " .. player.Name .. "\nAltura: " .. height .. "m"
+            end
+        end
+    end
+    
+    events.UpdateHeightEvent:FireClient(player, height)
+end
+----- SERVER SCRIPT (Parte 3/6) -----
+
+----- 12. SISTEMA DE CONSTRUÇÃO -----
+local function createBlockForPlayer(player, blockType)
+    if not playerBases[player] then return end
+    
+    local base = playerBases[player]
+    local highestPoint = base.Position.Y + base.Size.Y/2
+    
+    for _, obj in ipairs(workspace:GetChildren()) do
+        if obj:IsA("Part") and obj.Name:find("Bloco_" .. player.UserId) then
+            local top = obj.Position.Y + obj.Size.Y/2
+            if top > highestPoint then
+                highestPoint = top
+            end
+        end
+    end
+
+    local block = Instance.new("Part")
+    block.Name = "Bloco_" .. player.UserId .. "_" .. os.time()
+    block.Size = Vector3.new(4, 1, 4)
+    block.Position = Vector3.new(
+        base.Position.X + math.random(-3, 3),
+        highestPoint + 0.5,
+        base.Position.Z + math.random(-3, 3)
+    )
+    block.Anchored = true
+    block.CanCollide = true
+
+    if blockType == "Bloco_Dourado" then
+        block.BrickColor = BrickColor.new("New Yeller")
+        block.Material = Enum.Material.Neon
+    elseif blockType == "Bloco_Diamante" then
+        block.BrickColor = BrickColor.new("Toothpaste")
+        block.Material = Enum.Material.ForceField
+    elseif blockType == "Bloco_Rubi" then
+        block.BrickColor = BrickColor.new("Really red")
+        block.Material = Enum.Material.Neon
+    elseif blockType == "Bloco_Esmeralda" then
+        block.BrickColor = BrickColor.new("Lime green")
+        block.Material = Enum.Material.Neon
+    elseif blockType == "Bloco_Safira" then
+        block.BrickColor = BrickColor.new("Bright blue")
+        block.Material = Enum.Material.Neon
+    elseif blockType == "Bloco_Cristal" then
+        block.BrickColor = BrickColor.new("Institutional white")
+        block.Material = Enum.Material.Glass
+    elseif blockType == "Bloco_Titanio" then
+        block.BrickColor = BrickColor.new("Medium grey")
+        block.Material = Enum.Material.DiamondPlate
+    elseif blockType == "Bloco_Platina" then
+        block.BrickColor = BrickColor.new("Light grey")
+        block.Material = Enum.Material.SmoothPlastic
+    elseif blockType == "Bloco_Universo" then
+        block.BrickColor = BrickColor.new("Really black")
+        block.Material = Enum.Material.Neon
+        -- Efeito especial para universo
+        local pointLight = Instance.new("PointLight")
+        pointLight.Brightness = 2
+        pointLight.Range = 10
+        pointLight.Color = Color3.fromRGB(0, 100, 255)
+        pointLight.Parent = block
+    elseif blockType == "Bloco_Galaxia" then
+        block.BrickColor = BrickColor.Random()
+        block.Material = Enum.Material.Neon
+        -- Efeito especial para galáxia
+        local sparkles = Instance.new("Sparkles")
+        sparkles.SparkleColor = Color3.fromRGB(255, 255, 255)
+        sparkles.Parent = block
+    elseif blockType == "Bloco_ArcoIris" then
+        block.BrickColor = BrickColor.Random()
+        block.Material = Enum.Material.Neon
+    else
+        block.BrickColor = BrickColor.Random()
+        block.Material = Enum.Material.Plastic
+    end
+
+    block.Parent = workspace
+    return block
+end
+
+----- 13. SISTEMA DE LOJA -----
+local function handleShopPurchase(player, item, cost)
+    if not playerMoney[player] then
+        events.NotificationEvent:FireClient(player, "❌ Erro: Dados de dinheiro não carregados", Color3.fromRGB(255, 0, 0))
+        return false
+    end
+    
+    if playerMoney[player] < cost then
+        events.NotificationEvent:FireClient(player, "❌ Dinheiro insuficiente!", Color3.fromRGB(255, 0, 0))
+        return false
+    end
+    
+    -- Verificar se o item existe na loja
+    if not SHOP_ITEMS[item] then
+        events.NotificationEvent:FireClient(player, "❌ Item inválido: " .. tostring(item), Color3.fromRGB(255, 0, 0))
+        return false
+    end
+    
+    -- Verificar se o preço está correto
+    if cost ~= SHOP_ITEMS[item] then
+        events.NotificationEvent:FireClient(player, "❌ Preço incorreto para " .. item, Color3.fromRGB(255, 0, 0))
+        return false
+    end
+    
+    -- Verificar se o jogador já possui o item
+    if playerBlocks[player] and playerBlocks[player][item] then
+        events.NotificationEvent:FireClient(player, "❌ Você já possui " .. item, Color3.fromRGB(255, 0, 0))
+        return false
+    end
+    
+    playerMoney[player] = playerMoney[player] - cost
+    
+    -- Garantir que a tabela de blocos existe
+    playerBlocks[player] = playerBlocks[player] or {}
+    playerBlocks[player][item] = true
+    
+    events.UpdateMoneyEvent:FireClient(player, playerMoney[player])
+    events.NotificationEvent:FireClient(player, "✅ " .. item .. " comprado!", Color3.fromRGB(0, 255, 0))
+    
+    -- Salvar dados após compra
+    pcall(function()
+        dataStores.moneyDataStore:SetAsync(player.UserId, playerMoney[player])
+        dataStores.blocksDataStore:SetAsync(player.UserId, playerBlocks[player])
+    end)
+    
+    return true
+end
+
+----- 14. SISTEMA DE TROCA DE BLOCOS (CORRIGIDO) -----
+local function handleEquipBlock(player, blockType)
+    if not player then
+        warn("❌ Jogador inválido ao tentar equipar bloco")
+        return false
+    end
+    
+    if not playerBlocks[player] then
+        events.NotificationEvent:FireClient(player, "❌ Erro: Dados de blocos não carregados", Color3.fromRGB(255, 0, 0))
+        return false
+    end
+    
+    -- Verificar se o bloco existe na lista de blocos
+    if not BLOCK_MULTIPLIERS[blockType] then
+        events.NotificationEvent:FireClient(player, "❌ Tipo de bloco inválido: " .. tostring(blockType), Color3.fromRGB(255, 0, 0))
+        return false
+    end
+    
+    if not playerBlocks[player][blockType] then
+        events.NotificationEvent:FireClient(player, "❌ Você não possui este bloco!", Color3.fromRGB(255, 0, 0))
+        return false
+    end
+    
+    playerEquippedBlock[player] = blockType
+    
+    -- Salvar bloco equipado
+    pcall(function()
+        dataStores.equippedDataStore:SetAsync(player.UserId, blockType)
+    end)
+    
+    -- Nomes amigáveis para exibição
+    local blockNames = {
+        Bloco_Normal = "Normal",
+        Bloco_Dourado = "Dourado",
+        Bloco_Diamante = "Diamante",
+        Bloco_Rubi = "Rubi",
+        Bloco_Esmeralda = "Esmeralda",
+        Bloco_Safira = "Safira",
+        Bloco_Cristal = "Cristal",
+        Bloco_Titanio = "Titânio",
+        Bloco_Platina = "Platina",
+        Bloco_Universo = "Universo",
+        Bloco_Galaxia = "Galáxia",
+        Bloco_ArcoIris = "Arco-Íris"
+    }
+    
+    local displayName = blockNames[blockType] or blockType
+    local multiplier = BLOCK_MULTIPLIERS[blockType] or 1
+    
+    events.NotificationEvent:FireClient(player, "✅ Bloco equipado: " .. displayName .. " (" .. multiplier .. "x)", Color3.fromRGB(0, 255, 0))
+    
+    -- Atualizar também via BlockSelectEvent para garantir sincronização
+    local availableBlocks = {}
+    for blockName, owned in pairs(playerBlocks[player]) do
+        if owned then
+            table.insert(availableBlocks, blockName)
+        end
+    end
+    events.BlockSelectEvent:FireClient(player, availableBlocks, blockType)
+    
+    return true
+end
+
+----- 15. SISTEMA DE SELEÇÃO DE BLOCOS -----
+events.BlockSelectEvent.OnServerEvent:Connect(function(player)
+    if not playerBlocks[player] then
+        events.NotificationEvent:FireClient(player, "❌ Dados de blocos não carregados", Color3.fromRGB(255, 0, 0))
+        return
+    end
+    
+    -- Enviar lista de blocos disponíveis para o jogador
+    local availableBlocks = {}
+    for blockName, owned in pairs(playerBlocks[player]) do
+        if owned then
+            table.insert(availableBlocks, blockName)
+        end
+    end
+    
+    -- Enviar também o bloco atualmente equipado
+    events.BlockSelectEvent:FireClient(player, availableBlocks, playerEquippedBlock[player] or "Bloco_Normal")
+end)
+
+----- 16. SISTEMA EVENTO DO TACO (COMPLETO COM EFEITOS) -----
+local tacoEventActive = false
+local originalTacoSettings = {}
+
+local function activateTacoEvent()
+    if tacoEventActive then return end
+    
+    tacoEventActive = true
+    sendGlobalMessage("🌮 EVENTO DO TACO ATIVADO! Música especial e efeitos!", nil)
+    
+    -- Salvar configurações originais
+    originalTacoSettings = {
+        Brightness = Lighting.Brightness,
+        Ambient = Lighting.Ambient,
+        OutdoorAmbient = Lighting.OutdoorAmbient,
+        FogColor = Lighting.FogColor,
+        FogEnd = Lighting.FogEnd
+    }
+    
+    -- Configurar céu para evento do taco
+    Lighting.Brightness = 1.5
+    Lighting.Ambient = Color3.fromRGB(255, 220, 100)
+    Lighting.OutdoorAmbient = Color3.fromRGB(255, 200, 100)
+    Lighting.FogColor = Color3.fromRGB(255, 200, 100)
+    Lighting.FogEnd = 500
+    
+    -- Tocar música do taco (ID 5 na lista)
+    playGlobalMusic(5)
+    
+    -- Criar partículas de taco no céu
+    local tacoParticles = Instance.new("Part")
+    tacoParticles.Name = "TacoParticles"
+    tacoParticles.Size = Vector3.new(500, 1, 500)
+    tacoParticles.Position = Vector3.new(0, 100, 0)
+    tacoParticles.Transparency = 1
+    tacoParticles.Anchored = true
+    tacoParticles.CanCollide = false
+    tacoParticles.Parent = workspace
+    
+    local particleEmitter = Instance.new("ParticleEmitter")
+    particleEmitter.Texture = "rbxassetid://6676405993" -- Textura de taco
+    particleEmitter.Size = NumberSequence.new(3)
+    particleEmitter.Transparency = NumberSequence.new(0.5)
+    particleEmitter.Lifetime = NumberRange.new(5, 10)
+    particleEmitter.Rate = 20
+    particleEmitter.Speed = NumberRange.new(5, 15)
+    particleEmitter.SpreadAngle = Vector2.new(90, 90)
+    particleEmitter.Rotation = NumberRange.new(0, 360)
+    particleEmitter.VelocityInheritance = 0.5
+    particleEmitter.Parent = tacoParticles
+    
+    -- Duração do evento: 3 minutos
+    for i = 180, 0, -1 do
+        if not tacoEventActive then break end
+        task.wait(1)
+    end
+    
+    -- Restaurar configurações
+    tacoEventActive = false
+    Lighting.Brightness = originalTacoSettings.Brightness or 2
+    Lighting.Ambient = originalTacoSettings.Ambient or Color3.fromRGB(128, 128, 128)
+    Lighting.OutdoorAmbient = originalTacoSettings.OutdoorAmbient or Color3.fromRGB(128, 128, 128)
+    Lighting.FogColor = originalTacoSettings.FogColor or Color3.fromRGB(191, 191, 191)
+    Lighting.FogEnd = originalTacoSettings.FogEnd or 100000
+    
+    -- Remover partículas
+    if tacoParticles and tacoParticles.Parent then
+        tacoParticles:Destroy()
+    end
+    
+    -- Parar música
+    playGlobalMusic(0)
+    
+    sendGlobalMessage("🌮 Evento do Taco terminou!", nil)
+end
+
+----- 17. SISTEMA CÉU COLORIDO -----
+local function activateRainbowEvent()
+    if rainbowEventActive then return end
+    
+    rainbowEventActive = true
+    sendGlobalMessage("🌈 EVENTO ARCO-ÍRIS ATIVADO! Céu colorido!", nil)
+    
+    -- Salvar configurações originais
+    local originalBrightness = Lighting.Brightness
+    local originalAmbient = Lighting.Ambient
+    local originalOutdoorAmbient = Lighting.OutdoorAmbient
+    
+    -- Função para mudar cores do céu
+    local function changeSkyColor()
+        local colors = {
+            Color3.fromRGB(255, 0, 0),    -- Vermelho
+            Color3.fromRGB(255, 165, 0),  -- Laranja
+            Color3.fromRGB(255, 255, 0),  -- Amarelo
+            Color3.fromRGB(0, 255, 0),    -- Verde
+            Color3.fromRGB(0, 0, 255),    -- Azul
+            Color3.fromRGB(75, 0, 130),   -- Índigo
+            Color3.fromRGB(238, 130, 238) -- Violeta
+        }
+        
+        local i = 1
+        while rainbowEventActive do
+            Lighting.Ambient = colors[i]
+            Lighting.OutdoorAmbient = colors[i]
+            i = (i % #colors) + 1
+            task.wait(1)
+        end
+    end
+    
+    -- Iniciar efeito de céu colorido
+    coroutine.wrap(changeSkyColor)()
+    
+    -- Duração do evento: 5 minutos
+    for i = 300, 0, -1 do
+        if not rainbowEventActive then break end
+        task.wait(1)
+    end
+    
+    -- Restaurar configurações
+    rainbowEventActive = false
+    Lighting.Brightness = originalBrightness
+    Lighting.Ambient = originalAmbient
+    Lighting.OutdoorAmbient = originalOutdoorAmbient
+    
+    sendGlobalMessage("🌈 Evento Arco-Íris terminou!", nil)
+end
+----- SERVER SCRIPT (Parte 4/6) -----
+
+----- 18. SISTEMA ADMIN (SEM MÚSICA) -----
+local function handleAdminCommand(player, command, amount, targetPlayer, musicId, message, blockType)
+    if player.Name ~= "PZNprozin" then 
+        events.NotificationEvent:FireClient(player, "❌ Acesso negado! Apenas PZNprozin pode usar comandos admin.", Color3.fromRGB(255, 0, 0))
+        return 
+    end
+    
+    if command == "giveMoney" then
+        if targetPlayer == "all" then
+            for _, plr in ipairs(Players:GetPlayers()) do
+                playerMoney[plr] = (playerMoney[plr] or 0) + amount
+                events.UpdateMoneyEvent:FireClient(plr, playerMoney[plr])
+            end
+            events.NotificationEvent:FireClient(player, "✅ $" .. amount .. " dado para todos os jogadores", Color3.fromRGB(0, 255, 0))
+        else
+            local target = Players:FindFirstChild(targetPlayer)
+            if target then
+                playerMoney[target] = (playerMoney[target] or 0) + amount
+                events.UpdateMoneyEvent:FireClient(target, playerMoney[target])
+                events.NotificationEvent:FireClient(player, "✅ $" .. amount .. " dado para " .. targetPlayer, Color3.fromRGB(0, 255, 0))
+            else
+                events.NotificationEvent:FireClient(player, "❌ Jogador " .. targetPlayer .. " não encontrado", Color3.fromRGB(255, 0, 0))
+            end
+        end
+        
+    elseif command == "setHeight" then
+        if targetPlayer == "all" then
+            for _, plr in ipairs(Players:GetPlayers()) do
+                playerHeights[plr] = amount
+                updateBaseHeight(plr, amount)
+            end
+            events.NotificationEvent:FireClient(player, "✅ Altura " .. amount .. "m definida para todos", Color3.fromRGB(0, 255, 0))
+        else
+            local target = Players:FindFirstChild(targetPlayer)
+            if target then
+                playerHeights[target] = amount
+                updateBaseHeight(target, amount)
+                events.NotificationEvent:FireClient(player, "✅ Altura " .. amount .. "m definida para " .. targetPlayer, Color3.fromRGB(0, 255, 0))
+            else
+                events.NotificationEvent:FireClient(player, "❌ Jogador " .. targetPlayer .. " não encontrado", Color3.fromRGB(255, 0, 0))
+            end
+        end
+        
+    elseif command == "resetAll" then
+        for _, plr in ipairs(Players:GetPlayers()) do
+            playerHeights[plr] = 0
+            updateBaseHeight(plr, 0)
+            for _, obj in ipairs(workspace:GetChildren()) do
+                if obj:IsA("Part") and obj.Name:find("Bloco_") then
+                    obj:Destroy()
+                end
+            end
+        end
+        events.NotificationEvent:FireClient(player, "✅ Todas as torres foram resetadas", Color3.fromRGB(0, 255, 0))
+        
+    elseif command == "giveGroupReward" then
+        if targetPlayer == "all" then
+            for _, plr in ipairs(Players:GetPlayers()) do
+                grantGroupReward(plr)
+            end
+            events.NotificationEvent:FireClient(player, "✅ Recompensa de grupo dada a todos", Color3.fromRGB(0, 255, 0))
+        else
+            local target = Players:FindFirstChild(targetPlayer)
+            if target then
+                grantGroupReward(target)
+                events.NotificationEvent:FireClient(player, "✅ Recompensa de grupo dada para " .. targetPlayer, Color3.fromRGB(0, 255, 0))
+            else
+                events.NotificationEvent:FireClient(player, "❌ Jogador " .. targetPlayer .. " não encontrado", Color3.fromRGB(255, 0, 0))
+            end
+        end
+        
+    elseif command == "globalMessage" then
+        sendGlobalMessage(message, player)
+        events.NotificationEvent:FireClient(player, "📢 Mensagem global enviada: " .. message, Color3.fromRGB(0, 255, 0))
+        
+    elseif command == "bloodrotEvent" then
+        activateBloodrotEvent()
+        
+    elseif command == "tacoEvent" then
+        activateTacoEvent()
+        
+    elseif command == "rainbowEvent" then
+        activateRainbowEvent()
+        
+    elseif command == "giveBlock" then
+        if targetPlayer == "all" then
+            for _, plr in ipairs(Players:GetPlayers()) do
+                playerBlocks[plr] = playerBlocks[plr] or {}
+                playerBlocks[plr][blockType] = true
+                events.NotificationEvent:FireClient(plr, "🎁 Bloco " .. blockType .. " recebido do admin!", Color3.fromRGB(0, 255, 0))
+            end
+            events.NotificationEvent:FireClient(player, "✅ Bloco " .. blockType .. " dado para todos", Color3.fromRGB(0, 255, 0))
+        else
+            local target = Players:FindFirstChild(targetPlayer)
+            if target then
+                playerBlocks[target] = playerBlocks[target] or {}
+                playerBlocks[target][blockType] = true
+                events.NotificationEvent:FireClient(target, "🎁 Bloco " .. blockType .. " recebido do admin!", Color3.fromRGB(0, 255, 0))
+                events.NotificationEvent:FireClient(player, "✅ Bloco " .. blockType .. " dado para " .. targetPlayer, Color3.fromRGB(0, 255, 0))
+            else
+                events.NotificationEvent:FireClient(player, "❌ Jogador " .. targetPlayer .. " não encontrado", Color3.fromRGB(255, 0, 0))
+            end
+        end
+    end
+end
+
+----- 19. SISTEMA DE TROCAS SIMPLES -----
+events.TradeEvent.OnServerEvent:Connect(function(player, targetPlayerName, offerBlock, requestBlock)
+    local targetPlayer = Players:FindFirstChild(targetPlayerName)
+    
+    if not targetPlayer then
+        events.NotificationEvent:FireClient(player, "❌ Jogador não encontrado!", Color3.fromRGB(255, 0, 0))
+        return
+    end
+    
+    if player == targetPlayer then
+        events.NotificationEvent:FireClient(player, "❌ Não pode trocar consigo mesmo!", Color3.fromRGB(255, 0, 0))
+        return
+    end
+    
+    -- Verificar se ambos possuem os blocos
+    if not playerBlocks[player] or not playerBlocks[player][offerBlock] then
+        events.NotificationEvent:FireClient(player, "❌ Você não possui " .. offerBlock, Color3.fromRGB(255, 0, 0))
+        return
+    end
+    
+    if not playerBlocks[targetPlayer] or not playerBlocks[targetPlayer][requestBlock] then
+        events.NotificationEvent:FireClient(player, "❌ " .. targetPlayerName .. " não possui " .. requestBlock, Color3.fromRGB(255, 0, 0))
+        return
+    end
+    
+    -- Executar troca
+    playerBlocks[player][offerBlock] = false
+    playerBlocks[player][requestBlock] = true
+    
+    playerBlocks[targetPlayer][requestBlock] = false
+    playerBlocks[targetPlayer][offerBlock] = true
+    
+    -- Salvar dados
+    pcall(function()
+        dataStores.blocksDataStore:SetAsync(player.UserId, playerBlocks[player])
+        dataStores.blocksDataStore:SetAsync(targetPlayer.UserId, playerBlocks[targetPlayer])
+    end)
+    
+    -- Notificar ambos os jogadores
+    events.NotificationEvent:FireClient(player, "✅ Troca realizada! Você recebeu " .. requestBlock, Color3.fromRGB(0, 255, 0))
+    events.NotificationEvent:FireClient(targetPlayer, "✅ " .. player.Name .. " trocou " .. offerBlock .. " pelo seu " .. requestBlock, Color3.fromRGB(0, 255, 0))
+    
+    -- Atualizar seleção de blocos
+    events.BlockSelectEvent:FireClient(player, playerBlocks[player], playerEquippedBlock[player] or "Bloco_Normal")
+    events.BlockSelectEvent:FireClient(targetPlayer, playerBlocks[targetPlayer], playerEquippedBlock[targetPlayer] or "Bloco_Normal")
+end)
+
+----- 20. MANUSEIO DE JOGADORES -----
+Players.PlayerAdded:Connect(function(player)
+    -- Carregar dados com proteção contra erros
+    local successMoney, money = pcall(function()
+        return dataStores.moneyDataStore:GetAsync(player.UserId)
+    end)
+    
+    local successHeight, height = pcall(function()
+        return dataStores.heightDataStore:GetAsync(player.UserId)
+    end)
+    
+    local successBlocks, blocks = pcall(function()
+        return dataStores.blocksDataStore:GetAsync(player.UserId)
+    end)
+    
+    local successEquipped, equipped = pcall(function()
+        return dataStores.equippedDataStore:GetAsync(player.UserId)
+    end)
+    
+    playerMoney[player] = successMoney and money or 0
+    playerHeights[player] = successHeight and height or 0
+    playerBlocks[player] = successBlocks and blocks or {Bloco_Normal = true}
+    playerEquippedBlock[player] = successEquipped and equipped or "Bloco_Normal"
+    
+    checkGamePassOwnership(player)
+    checkGroupMembership(player)
+    
+    local base = assignBaseToPlayer(player)
+    
+    -- Criar leaderstats
+    local leaderstats = Instance.new("Folder")
+    leaderstats.Name = "leaderstats"
+    leaderstats.Parent = player
+
+    local moneyValue = Instance.new("IntValue")
+    moneyValue.Name = "Money"
+    moneyValue.Value = playerMoney[player]
+    moneyValue.Parent = leaderstats
+
+    local heightValue = Instance.new("IntValue")
+    heightValue.Name = "Height"
+    heightValue.Value = playerHeights[player]
+    heightValue.Parent = leaderstats
+    
+    events.UpdateMoneyEvent:FireClient(player, playerMoney[player])
+    events.UpdateHeightEvent:FireClient(player, playerHeights[player])
+    
+    -- Notificação de boas-vindas
+    events.NotificationEvent:FireClient(player, "🌻 Bem-vindo ao Grow A Tower! Construa sua torre e ganhe recompensas!", Color3.fromRGB(255, 215, 0))
+    
+    if playerInGroup[player] then
+        events.NotificationEvent:FireClient(player, "🎁 Você já é membro do grupo! Bloco Arco-Íris desbloqueado.", Color3.fromRGB(0, 255, 0))
+    else
+        events.NotificationEvent:FireClient(player, "🎁 Entre no nosso grupo para ganhar $5000 + Bloco Arco-Íris!", Color3.fromRGB(255, 165, 0))
+    end
+    
+    -- Teleportar jogador para sua base quando o personagem spawnar
+    player.CharacterAdded:Connect(function(character)
+        task.wait(1) -- Esperar o personagem carregar completamente
+        if base and character:FindFirstChild("HumanoidRootPart") then
+            character:FindFirstChild("HumanoidRootPart").CFrame = CFrame.new(base.Position + Vector3.new(0, 5, 0))
+        end
+    end)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    -- Salvar dados ao sair
+    pcall(function()
+        dataStores.moneyDataStore:SetAsync(player.UserId, playerMoney[player])
+        dataStores.heightDataStore:SetAsync(player.UserId, playerHeights[player])
+        dataStores.blocksDataStore:SetAsync(player.UserId, playerBlocks[player])
+        dataStores.equippedDataStore:SetAsync(player.UserId, playerEquippedBlock[player])
+    end)
+    
+    -- Liberar base e remover blocos
+    if playerBases[player] then
+        table.insert(availableBases, playerBases[player])
+        
+        -- Resetar placa da base
+        local sign = playerBases[player]:FindFirstChild("BaseSign")
+        if sign then
+            local textLabel = sign:FindFirstChild("TextLabel")
+            if textLabel then
+                textLabel.Text = "Base Disponível\nAltura: 0m"
+            end
+        end
+        
+        -- Remover blocos do jogador
+        for _, obj in ipairs(workspace:GetChildren()) do
+            if obj:IsA("Part") and obj.Name:find("Bloco_" .. player.UserId) then
+                obj:Destroy()
+            end
+        end
+        playerBases[player] = nil
+    end
+end)
+
+----- 21. CONEXÕES DE EVENTOS -----
+events.RequestDataEvent.OnServerEvent:Connect(function(player)
+    events.UpdateMoneyEvent:FireClient(player, playerMoney[player] or 0)
+    events.UpdateHeightEvent:FireClient(player, playerHeights[player] or 0)
+end)
+
+events.BuildBlockEvent.OnServerEvent:Connect(function(player, blockType)
+    if not playerBlocks[player] then
+        playerBlocks[player] = {Bloco_Normal = true}
+    end
+    
+    local blockToUse = playerEquippedBlock[player] or "Bloco_Normal"
+    
+    if blockToUse ~= "Bloco_Normal" and not playerBlocks[player][blockToUse] then
+        events.NotificationEvent:FireClient(player, "❌ Você não possui este tipo de bloco!", Color3.fromRGB(255, 0, 0))
+        return
+    end
+    
+    createBlockForPlayer(player, blockToUse)
+    
+    -- Calcular recompensa com base no multiplicador do bloco
+    local baseReward = BLOCK_MULTIPLIERS[blockToUse] or 1
+    local multiplier = playerMultipliers[player] or 1
+    
+    if bloodrotEventActive then
+        multiplier = multiplier * bloodrotMultiplier
+    end
+    
+    local reward = math.max(1, (baseReward + math.floor((playerHeights[player] or 0) / 10)) * multiplier)
+    
+    playerMoney[player] = (playerMoney[player] or 0) + reward
+    playerHeights[player] = (playerHeights[player] or 0) + 1
+    
+    events.UpdateMoneyEvent:FireClient(player, playerMoney[player])
+    updateBaseHeight(player, playerHeights[player])
+end)
+
+events.ResetTowerEvent.OnServerEvent:Connect(function(player)
+    if (playerHeights[player] or 0) < 10 then
+        events.NotificationEvent:FireClient(player, "❌ Altura mínima para reset: 10m", Color3.fromRGB(255, 0, 0))
+        return
+    end
+    
+    local resetReward = math.floor((playerHeights[player] or 0) * 0.1)
+    playerMoney[player] = (playerMoney[player] or 0) + resetReward
+    playerHeights[player] = 0
+    
+    events.UpdateMoneyEvent:FireClient(player, playerMoney[player])
+    updateBaseHeight(player, 0)
+    
+    for _, obj in ipairs(workspace:GetChildren()) do
+        if obj:IsA("Part") and obj.Name:find("Bloco_" .. player.UserId) then
+            obj:Destroy()
+        end
+    end
+    
+    events.NotificationEvent:FireClient(player, "✅ Reset completo! +$" .. resetReward, Color3.fromRGB(0, 255, 0))
+end)
+
+events.ShopEvent.OnServerEvent:Connect(function(player, item, cost)
+    handleShopPurchase(player, item, cost)
+end)
+
+events.EquipBlockEvent.OnServerEvent:Connect(function(player, blockType)
+    if not player or not blockType then
+        warn("❌ Parâmetros inválidos no EquipBlockEvent")
+        return
+    end
+    
+    local success, result = pcall(function()
+        return handleEquipBlock(player, blockType)
+    end)
+    
+    if not success then
+        warn("❌ Erro ao equipar bloco: " .. tostring(result))
+        if player then
+            events.NotificationEvent:FireClient(player, "❌ Erro ao equipar bloco", Color3.fromRGB(255, 0, 0))
+        end
+    end
+end)
+
+events.GroupRewardEvent.OnServerEvent:Connect(function(player)
+    grantGroupReward(player)
+end)
+
+events.CheckGroupEvent.OnServerEvent:Connect(function(player)
+    local success, isInGroup = pcall(function()
+        return GroupService:IsInGroup(player.UserId, GROUP_ID)
+    end)
+    
+    if success and isInGroup and not playerInGroup[player] then
+        grantGroupReward(player)
+    elseif success and isInGroup and playerInGroup[player] then
+        events.NotificationEvent:FireClient(player, "✅ Você já recebeu a recompensa do grupo!", Color3.fromRGB(0, 255, 0))
+    else
+        events.NotificationEvent:FireClient(player, "❌ Você precisa entrar no grupo primeiro!", Color3.fromRGB(255, 0, 0))
+    end
+end)
+
+events.MusicEvent.OnServerEvent:Connect(function(player, musicId)
+    if player.Name == "PZNprozin" then
+        playGlobalMusic(musicId)
+    end
+end)
+
+events.AdminEvent.OnServerEvent:Connect(function(player, command, amount, targetPlayer, musicId, message, blockType)
+    handleAdminCommand(player, command, amount, targetPlayer, musicId, message, blockType)
+end)
+
+events.GamepassEvent.OnServerEvent:Connect(function(player)
+    MarketplaceService:PromptGamePassPurchase(player, GAMEPASS_5X_ID)
+end)
+
+events.RainbowEvent.OnServerEvent:Connect(function()
+    activateRainbowEvent()
+end)
+
+----- 22. PROCESSAMENTO DE GAMEPASS -----
+MarketplaceService.ProcessReceipt = function(receiptInfo)
+    local player = Players:GetPlayerByUserId(receiptInfo.PlayerId)
+    if player and receiptInfo.ProductId == GAMEPASS_5X_ID then
+        playerMultipliers[player] = 5
+        pcall(function()
+            dataStores.gamePassDataStore:SetAsync(player.UserId, true)
+        end)
+        events.NotificationEvent:FireClient(player, "✅ GamePass 5x ativado! Agora você ganha 5x mais dinheiro!", Color3.fromRGB(0, 255, 0))
+        return Enum.ProductPurchaseDecision.PurchaseGranted
+    end
+    return Enum.ProductPurchaseDecision.NotProcessedYet
+end
+
+----- INICIALIZAÇÃO -----
+createWorld()
+print("✅ Servidor completo com todas as melhorias e eventos!")
