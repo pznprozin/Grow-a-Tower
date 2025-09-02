@@ -1,0 +1,1350 @@
+----- LOCALSCRIPT (Parte 5/6) -----
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local MarketplaceService = game:GetService("MarketplaceService")
+local TweenService = game:GetService("TweenService")
+local player = Players.LocalPlayer
+local mouse = player:GetMouse()
+
+-- Conectar aos eventos com WaitForChild seguro
+local events = {}
+local eventNames = {
+    "UpdateMoneyEvent", "RequestDataEvent", "UpdateHeightEvent", 
+    "ResetTowerEvent", "AdminEvent", "BuildBlockEvent", 
+    "MusicEvent", "ShopEvent", "NotificationEvent", 
+    "GroupRewardEvent", "CheckGroupEvent", "EquipBlockEvent",
+    "BlockSelectEvent", "GamepassEvent", "RainbowEvent",
+    "TradeEvent"
+}
+
+-- Função segura para obter eventos
+local function getRemoteEvent(eventName)
+    local event = ReplicatedStorage:FindFirstChild(eventName)
+    if not event then
+        -- Esperar se o evento não existir ainda
+        local success, result = pcall(function()
+            return ReplicatedStorage:WaitForChild(eventName, 5)
+        end)
+        if success then
+            return result
+        else
+            warn("Evento " .. eventName .. " não encontrado: " .. result)
+            return nil
+        end
+    end
+    return event
+end
+
+-- Obter todos os eventos
+for _, eventName in ipairs(eventNames) do
+    events[eventName] = getRemoteEvent(eventName)
+end
+
+
+----- VARIÁVEIS -----
+local currentMoney = 0
+local currentHeight = 0
+local currentBlockType = "Bloco_Normal"
+local ownedBlocks = {
+    Bloco_Normal = true,
+    Bloco_Dourado = false,
+    Bloco_Diamante = false,
+    Bloco_Rubi = false,
+    Bloco_Esmeralda = false,
+    Bloco_Safira = false,
+    Bloco_Cristal = false,
+    Bloco_Titanio = false,
+    Bloco_Platina = false,
+    Bloco_Universo = false,
+    Bloco_Galaxia = false,
+    Bloco_ArcoIris = false
+}
+
+-- Multiplicadores de dinheiro para cada bloco
+local BLOCK_MULTIPLIERS = {
+    Bloco_Normal = 1,
+    Bloco_Dourado = 5,
+    Bloco_Diamante = 10,
+    Bloco_Rubi = 20,
+    Bloco_Esmeralda = 30,
+    Bloco_Safira = 40,
+    Bloco_Cristal = 50,
+    Bloco_Titanio = 75,
+    Bloco_Platina = 100,
+    Bloco_Universo = 150,
+    Bloco_Galaxia = 200,
+    Bloco_ArcoIris = 8
+}
+
+local MUSIC_IDS = {
+    70455732863262,   -- Música principal
+    138690351078103,  -- Música épica
+    103409297553965,  -- Música alternativa
+    9117340459,       -- Música divertida
+    142376088,        -- Música do Taco
+    9117340459,       -- Música "Minha Alma Minha Essência"
+    0                 -- Parar música
+}
+local GROUP_ID = 35647620
+local hasGamePass5x = false
+local isAdmin = player.Name == "PZNprozin"
+
+----- 1. CRIAÇÃO DA INTERFACE PRINCIPAL -----
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "MainGui"
+screenGui.Parent = player.PlayerGui
+screenGui.ResetOnSpawn = false
+
+-- Botão Principal
+local clickButton = Instance.new("TextButton")
+clickButton.Name = "ClickButton"
+clickButton.Size = UDim2.new(0.2, 0, 0.1, 0)
+clickButton.Position = UDim2.new(0.4, 0, 0.7, 0)
+clickButton.Text = "🌻 CONSTRUIR"
+clickButton.TextScaled = true
+clickButton.Font = Enum.Font.FredokaOne
+clickButton.TextColor3 = Color3.new(1, 1, 1)
+clickButton.BackgroundColor3 = Color3.fromRGB(255, 105, 180)
+clickButton.BackgroundTransparency = 0.2
+clickButton.Parent = screenGui
+
+-- Display de Dinheiro
+local moneyText = Instance.new("TextLabel")
+moneyText.Name = "MoneyText"
+moneyText.Size = UDim2.new(0.18, 0, 0.06, 0)
+moneyText.Position = UDim2.new(0.05, 0, 0.05, 0)
+moneyText.Text = "💰 $0"
+moneyText.TextScaled = true
+moneyText.Font = Enum.Font.FredokaOne
+moneyText.TextColor3 = Color3.new(1, 1, 0)
+moneyText.BackgroundTransparency = 1
+moneyText.Parent = screenGui
+
+-- Display de Altura
+local heightText = Instance.new("TextLabel")
+heightText.Name = "HeightText"
+heightText.Size = UDim2.new(0.18, 0, 0.06, 0)
+heightText.Position = UDim2.new(0.77, 0, 0.05, 0)
+heightText.Text = "📏 0m"
+heightText.TextScaled = true
+heightText.Font = Enum.Font.FredokaOne
+heightText.TextColor3 = Color3.new(0, 1, 1)
+heightText.BackgroundTransparency = 1
+heightText.Parent = screenGui
+
+-- Display de Bloco Atual
+local blockText = Instance.new("TextLabel")
+blockText.Name = "BlockText"
+blockText.Size = UDim2.new(0.18, 0, 0.06, 0)
+blockText.Position = UDim2.new(0.05, 0, 0.12, 0)
+blockText.Text = "🧱 Normal (1x)"
+blockText.TextScaled = true
+blockText.Font = Enum.Font.FredokaOne
+blockText.TextColor3 = Color3.new(1, 1, 1)
+blockText.BackgroundTransparency = 1
+blockText.Parent = screenGui
+
+-- Botão da Loja
+local shopButton = Instance.new("TextButton")
+shopButton.Name = "ShopButton"
+shopButton.Size = UDim2.new(0.12, 0, 0.06, 0)
+shopButton.Position = UDim2.new(0.44, 0, 0.05, 0)
+shopButton.Text = "🛒 LOJA"
+shopButton.TextScaled = true
+shopButton.Font = Enum.Font.FredokaOne
+shopButton.TextColor3 = Color3.new(1, 1, 1)
+shopButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+shopButton.Parent = screenGui
+
+-- Botão Resetar Torre
+local resetButton = Instance.new("TextButton")
+resetButton.Name = "ResetButton"
+resetButton.Size = UDim2.new(0.15, 0, 0.06, 0)
+resetButton.Position = UDim2.new(0.44, 0, 0.12, 0)
+resetButton.Text = "🔄 RESETAR"
+resetButton.TextScaled = true
+resetButton.Font = Enum.Font.FredokaOne
+resetButton.TextColor3 = Color3.new(1, 1, 1)
+resetButton.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+resetButton.Parent = screenGui
+
+-- Botão Admin
+local adminButton = Instance.new("TextButton")
+adminButton.Name = "AdminButton"
+adminButton.Size = UDim2.new(0.12, 0, 0.06, 0)
+adminButton.Position = UDim2.new(0.83, 0, 0.12, 0)
+adminButton.Text = "⚙️ ADMIN"
+adminButton.TextScaled = true
+adminButton.Font = Enum.Font.FredokaOne
+adminButton.TextColor3 = Color3.new(1, 1, 1)
+adminButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+adminButton.Visible = isAdmin
+adminButton.Parent = screenGui
+
+-- Botão Grupo
+local groupButton = Instance.new("TextButton")
+groupButton.Name = "GroupButton"
+groupButton.Size = UDim2.new(0.12, 0, 0.06, 0)
+groupButton.Position = UDim2.new(0.83, 0, 0.19, 0)
+groupButton.Text = "👥 GRUPO"
+groupButton.TextScaled = true
+groupButton.Font = Enum.Font.FredokaOne
+groupButton.TextColor3 = Color3.new(1, 1, 1)
+groupButton.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+groupButton.Parent = screenGui
+
+-- Botão GamePass
+local gamepassButton = Instance.new("TextButton")
+gamepassButton.Name = "GamepassButton"
+gamepassButton.Size = UDim2.new(0.12, 0, 0.06, 0)
+gamepassButton.Position = UDim2.new(0.6, 0, 0.05, 0)
+gamepassButton.Text = "🎟️ 5x MONEY"
+gamepassButton.TextScaled = true
+gamepassButton.Font = Enum.Font.FredokaOne
+gamepassButton.TextColor3 = Color3.new(1, 1, 1)
+gamepassButton.BackgroundColor3 = Color3.fromRGB(255, 0, 255)
+gamepassButton.Parent = screenGui
+
+-- Botão Música
+local musicButton = Instance.new("TextButton")
+musicButton.Name = "MusicButton"
+musicButton.Size = UDim2.new(0.12, 0, 0.06, 0)
+musicButton.Position = UDim2.new(0.6, 0, 0.12, 0)
+musicButton.Text = "🎵 MÚSICA"
+musicButton.TextScaled = true
+musicButton.Font = Enum.Font.FredokaOne
+musicButton.TextColor3 = Color3.new(1, 1, 1)
+musicButton.BackgroundColor3 = Color3.fromRGB(150, 75, 0)
+musicButton.Visible = isAdmin
+musicButton.Parent = screenGui
+
+-- Botão Seleção de Blocos
+local blockSelectButton = Instance.new("TextButton")
+blockSelectButton.Name = "BlockSelectButton"
+blockSelectButton.Size = UDim2.new(0.12, 0, 0.06, 0)
+blockSelectButton.Position = UDim2.new(0.25, 0, 0.12, 0)
+blockSelectButton.Text = "🔽 BLOCO"
+blockSelectButton.TextScaled = true
+blockSelectButton.Font = Enum.Font.FredokaOne
+blockSelectButton.TextColor3 = Color3.new(1, 1, 1)
+blockSelectButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+blockSelectButton.Parent = screenGui
+
+-- Botão Evento Arco-Íris
+local rainbowButton = Instance.new("TextButton")
+rainbowButton.Name = "RainbowButton"
+rainbowButton.Size = UDim2.new(0.12, 0, 0.06, 0)
+rainbowButton.Position = UDim2.new(0.6, 0, 0.19, 0)
+rainbowButton.Text = "🌈 EVENTO"
+rainbowButton.TextScaled = true
+rainbowButton.Font = Enum.Font.FredokaOne
+rainbowButton.TextColor3 = Color3.new(1, 1, 1)
+rainbowButton.BackgroundColor3 = Color3.fromRGB(255, 0, 255)
+rainbowButton.Visible = isAdmin
+rainbowButton.Parent = screenGui
+
+-- Botão Troca
+local tradeButton = Instance.new("TextButton")
+tradeButton.Name = "TradeButton"
+tradeButton.Size = UDim2.new(0.12, 0, 0.06, 0)
+tradeButton.Position = UDim2.new(0.25, 0, 0.19, 0)
+tradeButton.Text = "🔄 TROCAR"
+tradeButton.TextScaled = true
+tradeButton.Font = Enum.Font.FredokaOne
+tradeButton.TextColor3 = Color3.new(1, 1, 1)
+tradeButton.BackgroundColor3 = Color3.fromRGB(150, 75, 150)
+tradeButton.Parent = screenGui
+
+-- Frame de Notificações
+local notificationFrame = Instance.new("Frame")
+notificationFrame.Name = "NotificationFrame"
+notificationFrame.Size = UDim2.new(0.3, 0, 0.1, 0)
+notificationFrame.Position = UDim2.new(0.35, 0, 0.82, 0)
+notificationFrame.BackgroundTransparency = 1
+notificationFrame.Parent = screenGui
+
+local notificationText = Instance.new("TextLabel")
+notificationText.Name = "NotificationText"
+notificationText.Size = UDim2.new(1, 0, 1, 0)
+notificationText.Text = ""
+notificationText.TextScaled = true
+notificationText.Font = Enum.Font.FredokaOne
+notificationText.TextColor3 = Color3.new(1, 1, 1)
+notificationText.BackgroundTransparency = 1
+notificationText.Parent = notificationFrame
+
+----- 2. FUNÇÕES DE ANIMAÇÃO -----
+local function animateButton(button)
+    local originalSize = button.Size
+    local tweenInfo = TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    
+    local scaleUp = TweenService:Create(button, tweenInfo, {Size = originalSize - UDim2.new(0.01, 0, 0.01, 0)})
+    local scaleDown = TweenService:Create(button, tweenInfo, {Size = originalSize})
+    
+    scaleUp:Play()
+    scaleUp.Completed:Connect(function()
+        scaleDown:Play()
+    end)
+end
+
+local function showNotification(message, color)
+    notificationText.Text = message
+    notificationText.TextColor3 = color
+    
+    local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    local fadeIn = TweenService:Create(notificationText, tweenInfo, {TextTransparency = 0})
+    local fadeOut = TweenService:Create(notificationText, tweenInfo, {TextTransparency = 1})
+    
+    fadeIn:Play()
+    task.wait(3)
+    fadeOut:Play()
+end
+
+----- 3. CONEXÃO AOS EVENTOS -----
+if events.UpdateMoneyEvent then
+    events.UpdateMoneyEvent.OnClientEvent:Connect(function(money)
+        currentMoney = money
+        moneyText.Text = "💰 $" .. tostring(money)
+        
+        if player:FindFirstChild("leaderstats") then
+            local moneyStat = player.leaderstats:FindFirstChild("Money")
+            if moneyStat then
+                moneyStat.Value = money
+            end
+        end
+    end)
+end
+
+if events.UpdateHeightEvent then
+    events.UpdateHeightEvent.OnClientEvent:Connect(function(height)
+        currentHeight = height
+        heightText.Text = "📏 " .. tostring(height) .. "m"
+        
+        if player:FindFirstChild("leaderstats") then
+            local heightStat = player.leaderstats:FindFirstChild("Height")
+            if heightStat then
+                heightStat.Value = height
+            end
+        end
+    end)
+end
+
+if events.NotificationEvent then
+    events.NotificationEvent.OnClientEvent:Connect(function(message, color)
+        showNotification(message, color)
+    end)
+end
+
+if events.ShopEvent then
+    events.ShopEvent.OnClientEvent:Connect(function(item)
+        if ownedBlocks[item] ~= nil then
+            ownedBlocks[item] = true
+            showNotification("✅ " .. item .. " comprado!", Color3.fromRGB(0, 255, 0))
+        end
+    end)
+end
+
+-- Receber lista de blocos disponíveis
+if events.BlockSelectEvent then
+    events.BlockSelectEvent.OnClientEvent:Connect(function(availableBlocks, equippedBlock)
+        -- Atualizar lista de blocos possuídos
+        for blockName, _ in pairs(ownedBlocks) do
+            ownedBlocks[blockName] = false
+        end
+        
+        for _, blockName in ipairs(availableBlocks) do
+            ownedBlocks[blockName] = true
+        end
+        
+        currentBlockType = equippedBlock
+        
+        -- Atualizar texto do bloco atual com multiplicador
+        local blockNames = {
+            Bloco_Normal = "Normal",
+            Bloco_Dourado = "Dourado",
+            Bloco_Diamante = "Diamante",
+            Bloco_Rubi = "Rubi",
+            Bloco_Esmeralda = "Esmeralda",
+            Bloco_Safira = "Safira",
+            Bloco_Cristal = "Cristal",
+            Bloco_Titanio = "Titânio",
+            Bloco_Platina = "Platina",
+            Bloco_Universo = "Universo",
+            Bloco_Galaxia = "Galáxia",
+            Bloco_ArcoIris = "Arco-Íris"
+        }
+        
+        local multiplier = BLOCK_MULTIPLIERS[currentBlockType] or 1
+        local displayName = blockNames[currentBlockType] or currentBlockType
+        blockText.Text = "🧱 " .. displayName .. " (" .. multiplier .. "x)"
+    end)
+end
+
+----- 4. FUNÇÕES DE INTERAÇÃO -----
+local function buildBlock()
+    if events.BuildBlockEvent then
+        events.BuildBlockEvent:FireServer(currentBlockType)
+        animateButton(clickButton)
+    else
+        showNotification("❌ Erro: Evento de construção não encontrado", Color3.fromRGB(255, 0, 0))
+    end
+end
+
+local function resetTower()
+    if currentHeight < 10 then
+        showNotification("❌ Altura mínima para reset: 10m", Color3.fromRGB(255, 0, 0))
+        return
+    end
+    
+    if events.ResetTowerEvent then
+        events.ResetTowerEvent:FireServer()
+        animateButton(resetButton)
+    else
+        showNotification("❌ Erro: Evento de reset não encontrado", Color3.fromRGB(255, 0, 0))
+    end
+end
+
+local function claimGroupReward()
+    animateButton(groupButton)
+    if events.CheckGroupEvent then
+        events.CheckGroupEvent:FireServer()
+    else
+        showNotification("❌ Erro: Evento de grupo não encontrado", Color3.fromRGB(255, 0, 0))
+    end
+end
+
+local function activateRainbowEvent()
+    animateButton(rainbowButton)
+    if events.RainbowEvent then
+        events.RainbowEvent:FireServer()
+    else
+        showNotification("❌ Erro: Evento arco-íris não encontrado", Color3.fromRGB(255, 0, 0))
+    end
+end
+
+----- 5. CONEXÕES DE BOTÕES -----
+clickButton.MouseButton1Click:Connect(buildBlock)
+resetButton.MouseButton1Click:Connect(resetTower)
+shopButton.MouseButton1Click:Connect(openShop)
+adminButton.MouseButton1Click:Connect(openAdminPanel)
+groupButton.MouseButton1Click:Connect(claimGroupReward)
+rainbowButton.MouseButton1Click:Connect(activateRainbowEvent)
+tradeButton.MouseButton1Click:Connect(openTradeMenu)
+
+if gamepassButton then
+    gamepassButton.MouseButton1Click:Connect(function()
+        animateButton(gamepassButton)
+        if events.GamepassEvent then
+            events.GamepassEvent:FireServer()
+        else
+            showNotification("❌ Erro: Evento gamepass não encontrado", Color3.fromRGB(255, 0, 0))
+        end
+    end)
+end
+
+musicButton.MouseButton1Click:Connect(openMusicMenu)
+blockSelectButton.MouseButton1Click:Connect(openBlockSelection)
+
+----- 6. INICIALIZAÇÃO -----
+-- Solicitar dados iniciais
+if events.RequestDataEvent then
+    events.RequestDataEvent:FireServer()
+else
+    showNotification("❌ Erro: Não foi possível conectar ao servidor", Color3.fromRGB(255, 0, 0))
+end
+
+-- Atualizar periodicamente a lista de blocos
+if events.BlockSelectEvent then
+    while task.wait(10) do
+        events.BlockSelectEvent:FireServer()
+    end
+end
+
+----- 7. SISTEMA DE LOJA -----
+local function openShop()
+    animateButton(shopButton)
+    
+    -- Verificar se já existe uma interface de loja
+    if screenGui:FindFirstChild("ShopGui") then
+        screenGui.ShopGui:Destroy()
+        return
+    end
+    
+    -- Criar interface da loja
+    local shopGui = Instance.new("Frame")
+    shopGui.Name = "ShopGui"
+    shopGui.Size = UDim2.new(0.5, 0, 0.7, 0)
+    shopGui.Position = UDim2.new(0.25, 0, 0.15, 0)
+    shopGui.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    shopGui.BorderSizePixel = 0
+    shopGui.Parent = screenGui
+    
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0.08, 0)
+    title.Text = "🛒 LOJA - COMPRAR BLOCOS"
+    title.TextScaled = true
+    title.Font = Enum.Font.FredokaOne
+    title.TextColor3 = Color3.new(1, 1, 1)
+    title.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
+    title.BorderSizePixel = 0
+    title.Parent = shopGui
+    
+    local closeButton = Instance.new("TextButton")
+    closeButton.Size = UDim2.new(0.1, 0, 0.08, 0)
+    closeButton.Position = UDim2.new(0.9, 0, 0, 0)
+    closeButton.Text = "X"
+    closeButton.TextScaled = true
+    closeButton.Font = Enum.Font.FredokaOne
+    closeButton.TextColor3 = Color3.new(1, 1, 1)
+    closeButton.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+    closeButton.BorderSizePixel = 0
+    closeButton.Parent = shopGui
+    
+    closeButton.MouseButton1Click:Connect(function()
+        shopGui:Destroy()
+    end)
+    
+    -- Itens da loja
+    local items = {
+        {Name = "Bloco_Dourado", Price = 200, Description = "+5x Dinheiro", Color = Color3.fromRGB(255, 215, 0)},
+        {Name = "Bloco_Diamante", Price = 1000, Description = "+10x Dinheiro", Color = Color3.fromRGB(0, 255, 255)},
+        {Name = "Bloco_Rubi", Price = 5000, Description = "+20x Dinheiro", Color = Color3.fromRGB(255, 0, 0)},
+        {Name = "Bloco_Esmeralda", Price = 10000, Description = "+30x Dinheiro", Color = Color3.fromRGB(0, 255, 0)},
+        {Name = "Bloco_Safira", Price = 20000, Description = "+40x Dinheiro", Color = Color3.fromRGB(0, 0, 255)},
+        {Name = "Bloco_Cristal", Price = 50000, Description = "+50x Dinheiro", Color = Color3.fromRGB(255, 255, 255)},
+        {Name = "Bloco_Titanio", Price = 100000, Description = "+75x Dinheiro", Color = Color3.fromRGB(150, 150, 150)},
+        {Name = "Bloco_Platina", Price = 250000, Description = "+100x Dinheiro", Color = Color3.fromRGB(200, 200, 200)},
+        {Name = "Bloco_Universo", Price = 500000, Description = "+150x Dinheiro", Color = Color3.fromRGB(0, 0, 100)},
+        {Name = "Bloco_Galaxia", Price = 1000000, Description = "+200x Dinheiro", Color = Color3.fromRGB(100, 0, 200)}
+    }
+    
+    local scrollFrame = Instance.new("ScrollingFrame")
+    scrollFrame.Size = UDim2.new(1, 0, 0.85, 0)
+    scrollFrame.Position = UDim2.new(0, 0, 0.08, 0)
+    scrollFrame.BackgroundTransparency = 1
+    scrollFrame.CanvasSize = UDim2.new(0, 0, 0, #items * 80)
+    scrollFrame.Parent = shopGui
+    
+    for i, item in ipairs(items) do
+        local itemFrame = Instance.new("Frame")
+        itemFrame.Size = UDim2.new(0.95, 0, 0, 70)
+        itemFrame.Position = UDim2.new(0.025, 0, 0, (i-1)*80)
+        itemFrame.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+        itemFrame.BorderSizePixel = 0
+        itemFrame.Parent = scrollFrame
+        
+        local nameLabel = Instance.new("TextLabel")
+        nameLabel.Size = UDim2.new(0.4, 0, 0.4, 0)
+        nameLabel.Position = UDim2.new(0.05, 0, 0.1, 0)
+        
+        -- Nomes amigáveis para exibição
+        local displayName = item.Name:gsub("Bloco_", "")
+        nameLabel.Text = displayName
+        nameLabel.TextScaled = true
+        nameLabel.Font = Enum.Font.FredokaOne
+        nameLabel.TextColor3 = item.Color
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Parent = itemFrame
+        
+        local descLabel = Instance.new("TextLabel")
+        descLabel.Size = UDim2.new(0.4, 0, 0.4, 0)
+        descLabel.Position = UDim2.new(0.05, 0, 0.5, 0)
+        descLabel.Text = item.Description
+        descLabel.TextScaled = true
+        descLabel.Font = Enum.Font.FredokaOne
+        descLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+        descLabel.BackgroundTransparency = 1
+        descLabel.Parent = itemFrame
+        
+        local priceLabel = Instance.new("TextLabel")
+        priceLabel.Size = UDim2.new(0.25, 0, 0.4, 0)
+        priceLabel.Position = UDim2.new(0.45, 0, 0.1, 0)
+        priceLabel.Text = "$" .. item.Price
+        priceLabel.TextScaled = true
+        priceLabel.Font = Enum.Font.FredokaOne
+        priceLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+        priceLabel.BackgroundTransparency = 1
+        priceLabel.Parent = itemFrame
+        
+        local buyButton = Instance.new("TextButton")
+        buyButton.Size = UDim2.new(0.25, 0, 0.6, 0)
+        buyButton.Position = UDim2.new(0.7, 0, 0.2, 0)
+        
+        -- Verificar se o jogador já possui o item
+        if ownedBlocks[item.Name] then
+            buyButton.Text = "COMPRADO"
+            buyButton.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
+            buyButton.TextColor3 = Color3.new(1, 1, 1)
+        else
+            buyButton.Text = "COMPRAR"
+            buyButton.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
+            buyButton.TextColor3 = Color3.new(1, 1, 1)
+        end
+        
+        buyButton.TextScaled = true
+        buyButton.Font = Enum.Font.FredokaOne
+        buyButton.Parent = itemFrame
+        
+        buyButton.MouseButton1Click:Connect(function()
+            if ownedBlocks[item.Name] then
+                showNotification("❌ Você já possui este bloco!", Color3.fromRGB(255, 0, 0))
+            else
+                if events.ShopEvent then
+                    events.ShopEvent:FireServer(item.Name, item.Price)
+                else
+                    showNotification("❌ Erro: Evento de loja não encontrado", Color3.fromRGB(255, 0, 0))
+                end
+            end
+            animateButton(buyButton)
+        end)
+    end
+end
+
+----- 8. SISTEMA DE SELEÇÃO DE BLOCOS -----
+local function openBlockSelection()
+    animateButton(blockSelectButton)
+    
+    -- Verificar se já existe uma interface de seleção
+    if screenGui:FindFirstChild("BlockSelectGui") then
+        screenGui.BlockSelectGui:Destroy()
+        return
+    end
+    
+    -- Solicitar lista de blocos ao servidor
+    if events.BlockSelectEvent then
+        events.BlockSelectEvent:FireServer()
+    else
+        showNotification("❌ Erro: Evento de seleção não encontrado", Color3.fromRGB(255, 0, 0))
+        return
+    end
+    
+    -- Criar interface de seleção de blocos
+    local blockSelectGui = Instance.new("Frame")
+    blockSelectGui.Name = "BlockSelectGui"
+    blockSelectGui.Size = UDim2.new(0.4, 0, 0.6, 0)
+    blockSelectGui.Position = UDim2.new(0.3, 0, 0.2, 0)
+    blockSelectGui.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    blockSelectGui.BorderSizePixel = 0
+    blockSelectGui.Parent = screenGui
+    
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0.08, 0)
+    title.Text = "🔽 SELECIONAR BLOCO"
+    title.TextScaled = true
+    title.Font = Enum.Font.FredokaOne
+    title.TextColor3 = Color3.new(1, 1, 1)
+    title.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+    title.BorderSizePixel = 0
+    title.Parent = blockSelectGui
+    
+    local closeButton = Instance.new("TextButton")
+    closeButton.Size = UDim2.new(0.1, 0, 0.08, 0)
+    closeButton.Position = UDim2.new(0.9, 0, 0, 0)
+    closeButton.Text = "X"
+    closeButton.TextScaled = true
+    closeButton.Font = Enum.Font.FredokaOne
+    closeButton.TextColor3 = Color3.new(1, 1, 1)
+    closeButton.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+    closeButton.Parent = blockSelectGui
+    
+    closeButton.MouseButton1Click:Connect(function()
+        blockSelectGui:Destroy()
+    end)
+    
+    local scrollFrame = Instance.new("ScrollingFrame")
+    scrollFrame.Size = UDim2.new(1, 0, 0.85, 0)
+    scrollFrame.Position = UDim2.new(0, 0, 0.08, 0)
+    scrollFrame.BackgroundTransparency = 1
+    scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0) -- Será ajustado dinamicamente
+    scrollFrame.Parent = blockSelectGui
+    
+    -- Nomes amigáveis para exibição
+    local blockNames = {
+        Bloco_Normal = "Normal",
+        Bloco_Dourado = "Dourado",
+        Bloco_Diamante = "Diamante",
+        Bloco_Rubi = "Rubi",
+        Bloco_Esmeralda = "Esmeralda",
+        Bloco_Safira = "Safira",
+        Bloco_Cristal = "Cristal",
+        Bloco_Titanio = "Titânio",
+        Bloco_Platina = "Platina",
+        Bloco_Universo = "Universo",
+        Bloco_Galaxia = "Galáxia",
+        Bloco_ArcoIris = "Arco-Íris"
+    }
+    
+    -- Cores para cada bloco
+    local blockColors = {
+        Bloco_Normal = Color3.fromRGB(200, 200, 200),
+        Bloco_Dourado = Color3.fromRGB(255, 215, 0),
+        Bloco_Diamante = Color3.fromRGB(0, 255, 255),
+        Bloco_Rubi = Color3.fromRGB(255, 0, 0),
+        Bloco_Esmeralda = Color3.fromRGB(0, 255, 0),
+        Bloco_Safira = Color3.fromRGB(0, 0, 255),
+        Bloco_Cristal = Color3.fromRGB(255, 255, 255),
+        Bloco_Titanio = Color3.fromRGB(150, 150, 150),
+        Bloco_Platina = Color3.fromRGB(200, 200, 200),
+        Bloco_Universo = Color3.fromRGB(0, 0, 100),
+        Bloco_Galaxia = Color3.fromRGB(100, 0, 200),
+        Bloco_ArcoIris = Color3.fromRGB(255, 0, 255)
+    }
+    
+    -- Função para criar os botões de seleção
+    local function createBlockButtons()
+        -- Limpar botões existentes
+        for _, child in ipairs(scrollFrame:GetChildren()) do
+            if child:IsA("Frame") then
+                child:Destroy()
+            end
+        end
+        
+        -- Criar botões para cada bloco possuído
+        local yPosition = 0
+        local buttonHeight = 70
+        
+        for blockName, owned in pairs(ownedBlocks) do
+            if owned then
+                local blockFrame = Instance.new("Frame")
+                blockFrame.Size = UDim2.new(0.95, 0, 0, buttonHeight)
+                blockFrame.Position = UDim2.new(0.025, 0, 0, yPosition)
+                blockFrame.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+                blockFrame.BorderSizePixel = 0
+                blockFrame.Parent = scrollFrame
+                
+                local nameLabel = Instance.new("TextLabel")
+                nameLabel.Size = UDim2.new(0.6, 0, 0.4, 0)
+                nameLabel.Position = UDim2.new(0.05, 0, 0.1, 0)
+                nameLabel.Text = blockNames[blockName] or blockName
+                nameLabel.TextScaled = true
+                nameLabel.Font = Enum.Font.FredokaOne
+                nameLabel.TextColor3 = blockColors[blockName] or Color3.fromRGB(255, 255, 255)
+                nameLabel.BackgroundTransparency = 1
+                nameLabel.Parent = blockFrame
+                
+                local multiplierLabel = Instance.new("TextLabel")
+                multiplierLabel.Size = UDim2.new(0.6, 0, 0.3, 0)
+                multiplierLabel.Position = UDim2.new(0.05, 0, 0.5, 0)
+                multiplierLabel.Text = "Multiplicador: " .. (BLOCK_MULTIPLIERS[blockName] or 1) .. "x"
+                multiplierLabel.TextScaled = true
+                multiplierLabel.Font = Enum.Font.FredokaOne
+                multiplierLabel.TextColor3 = Color3.fromRGB(200, 200, 0)
+                multiplierLabel.BackgroundTransparency = 1
+                multiplierLabel.Parent = blockFrame
+                
+                local selectButton = Instance.new("TextButton")
+                selectButton.Size = UDim2.new(0.25, 0, 0.6, 0)
+                selectButton.Position = UDim2.new(0.7, 0, 0.2, 0)
+                
+                if currentBlockType == blockName then
+                    selectButton.Text = "SELECIONADO"
+                    selectButton.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
+                else
+                    selectButton.Text = "SELECIONAR"
+                    selectButton.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
+                end
+                
+                selectButton.TextScaled = true
+                selectButton.Font = Enum.Font.FredokaOne
+                selectButton.TextColor3 = Color3.new(1, 1, 1)
+                selectButton.Parent = blockFrame
+                
+                selectButton.MouseButton1Click:Connect(function()
+                    if currentBlockType ~= blockName then
+                        if events.EquipBlockEvent then
+                            print("🔄 Tentando equipar bloco: " .. blockName)
+                            
+                            -- Feedback visual imediato
+                            selectButton.Text = "SELECIONANDO..."
+                            selectButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+                            
+                            local success = pcall(function()
+                                events.EquipBlockEvent:FireServer(blockName)
+                            end)
+                            
+                            if success then
+                                currentBlockType = blockName
+                                
+                                -- Atualizar texto do bloco atual
+                                local multiplier = BLOCK_MULTIPLIERS[blockName] or 1
+                                local displayName = blockNames[blockName] or blockName
+                                blockText.Text = "🧱 " .. displayName .. " (" .. multiplier .. "x)"
+                                
+                                -- Fechar a interface após seleção
+                                task.wait(0.5) -- Pequeno delay para feedback visual
+                                if blockSelectGui and blockSelectGui.Parent then
+                                    blockSelectGui:Destroy()
+                                end
+                            else
+                                showNotification("❌ Erro ao equipar bloco", Color3.fromRGB(255, 0, 0))
+                                selectButton.Text = "SELECIONAR"
+                                selectButton.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
+                            end
+                        else
+                            showNotification("❌ Erro: Evento de equipar não encontrado", Color3.fromRGB(255, 0, 0))
+                        end
+                    end
+                end)
+                
+                yPosition = yPosition + buttonHeight + 10
+            end
+        end
+        
+        -- Ajustar tamanho do canvas
+        scrollFrame.CanvasSize = UDim2.new(0, 0, 0, yPosition)
+    end
+    
+    -- Criar botões inicialmente
+    createBlockButtons()
+    
+    -- Atualizar periodicamente (caso o jogador compre novos blocos)
+    local updateConnection
+    updateConnection = game:GetService("RunService").Heartbeat:Connect(function()
+        if not blockSelectGui or not blockSelectGui.Parent then
+            updateConnection:Disconnect()
+            return
+        end
+        createBlockButtons()
+    end)
+end
+
+----- 9. SISTEMA DE MÚSICA -----
+local function openMusicMenu()
+    animateButton(musicButton)
+    
+    -- Verificar se já existe uma interface de música
+    if screenGui:FindFirstChild("MusicGui") then
+        screenGui.MusicGui:Destroy()
+        return
+    end
+    
+    -- Criar interface de música
+    local musicGui = Instance.new("Frame")
+    musicGui.Name = "MusicGui"
+    musicGui.Size = UDim2.new(0.3, 0, 0.4, 0)
+    musicGui.Position = UDim2.new(0.35, 0, 0.3, 0)
+    musicGui.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    musicGui.BorderSizePixel = 0
+    musicGui.Parent = screenGui
+    
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0.15, 0)
+    title.Text = "🎵 SELECIONAR MÚSICA"
+    title.TextScaled = true
+    title.Font = Enum.Font.FredokaOne
+    title.TextColor3 = Color3.new(1, 1, 1)
+    title.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+    title.BorderSizePixel = 0
+    title.Parent = musicGui
+    
+    local closeButton = Instance.new("TextButton")
+    closeButton.Size = UDim2.new(0.15, 0, 0.15, 0)
+    closeButton.Position = UDim2.new(0.85, 0, 0, 0)
+    closeButton.Text = "X"
+    closeButton.TextScaled = true
+    closeButton.Font = Enum.Font.FredokaOne
+    closeButton.TextColor3 = Color3.new(1, 1, 1)
+    closeButton.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+    closeButton.BorderSizePixel = 0
+    closeButton.Parent = musicGui
+    
+    closeButton.MouseButton1Click:Connect(function()
+        musicGui:Destroy()
+    end)
+    
+    local musicList = {
+        {Name = "Música Principal", Id = 1},
+        {Name = "Música Épica", Id = 2},
+        {Name = "Música Alternativa", Id = 3},
+        {Name = "Música Divertida", Id = 4},
+        {Name = "Música do Taco", Id = 5},
+        {Name = "Minha Alma Minha Essência", Id = 6},
+        {Name = "Parar Música", Id = 7}
+    }
+    
+    local scrollFrame = Instance.new("ScrollingFrame")
+    scrollFrame.Size = UDim2.new(1, 0, 0.8, 0)
+    scrollFrame.Position = UDim2.new(0, 0, 0.15, 0)
+    scrollFrame.BackgroundTransparency = 1
+    scrollFrame.CanvasSize = UDim2.new(0, 0, 0, #musicList * 60)
+    scrollFrame.Parent = musicGui
+    
+    for i, music in ipairs(musicList) do
+        local musicButton = Instance.new("TextButton")
+        musicButton.Size = UDim2.new(0.9, 0, 0, 50)
+        musicButton.Position = UDim2.new(0.05, 0, 0, (i-1)*60)
+        musicButton.Text = music.Name
+        musicButton.TextScaled = true
+        musicButton.Font = Enum.Font.FredokaOne
+        musicButton.TextColor3 = Color3.new(1, 1, 1)
+        musicButton.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
+        musicButton.Parent = scrollFrame
+        
+        musicButton.MouseButton1Click:Connect(function()
+            if events.MusicEvent then
+                events.MusicEvent:FireServer(music.Id)
+                showNotification("🎵 Tocando: " .. music.Name, Color3.fromRGB(0, 255, 255))
+            else
+                showNotification("❌ Erro: Evento de música não encontrado", Color3.fromRGB(255, 0, 0))
+            end
+            musicGui:Destroy()
+            animateButton(musicButton)
+        end)
+    end
+end
+
+----- 10. SISTEMA ADMIN (SEM MÚSICA) -----
+local function openAdminPanel()
+    animateButton(adminButton)
+    
+    -- Verificar se já existe um painel admin
+    if screenGui:FindFirstChild("AdminGui") then
+        screenGui.AdminGui:Destroy()
+        return
+    end
+    
+    -- Criar painel admin
+    local adminGui = Instance.new("Frame")
+    adminGui.Name = "AdminGui"
+    adminGui.Size = UDim2.new(0.5, 0, 0.7, 0)
+    adminGui.Position = UDim2.new(0.25, 0, 0.15, 0)
+    adminGui.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    adminGui.BorderSizePixel = 0
+    adminGui.Parent = screenGui
+    
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0.08, 0)
+    title.Text = "⚙️ PAINEL ADMIN - PZNprozin"
+    title.TextScaled = true
+    title.Font = Enum.Font.FredokaOne
+    title.TextColor3 = Color3.new(1, 1, 1)
+    title.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+    title.BorderSizePixel = 0
+    title.Parent = adminGui
+    
+    local closeButton = Instance.new("TextButton")
+    closeButton.Size = UDim2.new(0.1, 0, 0.08, 0)
+    closeButton.Position = UDim2.new(0.9, 0, 0, 0)
+    closeButton.Text = "X"
+    closeButton.TextScaled = true
+    closeButton.Font = Enum.Font.FredokaOne
+    closeButton.TextColor3 = Color3.new(1, 1, 1)
+    closeButton.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+    closeButton.Parent = adminGui
+    
+    closeButton.MouseButton1Click:Connect(function()
+        adminGui:Destroy()
+    end)
+    
+    -- Abas do painel admin (sem música)
+    local tabs = {"Geral", "Eventos", "Blocos"}
+    local tabButtons = {}
+    local tabFrames = {}
+    
+    local tabContainer = Instance.new("Frame")
+    tabContainer.Size = UDim2.new(1, 0, 0.1, 0)
+    tabContainer.Position = UDim2.new(0, 0, 0.08, 0)
+    tabContainer.BackgroundTransparency = 1
+    tabContainer.Parent = adminGui
+    
+    ----- LOCALSCRIPT (Parte 6/6) -----
+
+----- 10. SISTEMA ADMIN (SEM MÚSICA) - CONTINUAÇÃO -----
+    giveMoneyButton.MouseButton1Click:Connect(function()
+        local amount = tonumber(moneyAmount.Text) or 0
+        local target = playerName.Text
+        if amount > 0 and target ~= "" then
+            if events.AdminEvent then
+                events.AdminEvent:FireServer("giveMoney", amount, target)
+                showNotification("✅ $" .. amount .. " dado para " .. target, Color3.fromRGB(0, 255, 0))
+            else
+                showNotification("❌ Erro: Evento admin não encontrado", Color3.fromRGB(255, 0, 0))
+            end
+        else
+            showNotification("❌ Valor ou jogador inválido", Color3.fromRGB(255, 0, 0))
+        end
+    end)
+    
+    -- Conteúdo da aba Eventos
+    local eventosFrame = tabFrames["Eventos"]
+    
+    local bloodrotButton = Instance.new("TextButton")
+    bloodrotButton.Size = UDim2.new(0.4, 0, 0.15, 0)
+    bloodrotButton.Position = UDim2.new(0.05, 0, 0.05, 0)
+    bloodrotButton.Text = "🔴 ATIVAR BLOODROT"
+    bloodrotButton.TextScaled = true
+    bloodrotButton.Font = Enum.Font.FredokaOne
+    bloodrotButton.TextColor3 = Color3.new(1, 1, 1)
+    bloodrotButton.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+    bloodrotButton.Parent = eventosFrame
+    
+    bloodrotButton.MouseButton1Click:Connect(function()
+        if events.AdminEvent then
+            events.AdminEvent:FireServer("bloodrotEvent")
+            showNotification("🔴 Evento Bloodrot ativado!", Color3.fromRGB(255, 0, 0))
+        else
+            showNotification("❌ Erro: Evento admin não encontrado", Color3.fromRGB(255, 0, 0))
+        end
+    end)
+    
+    local tacoButton = Instance.new("TextButton")
+    tacoButton.Size = UDim2.new(0.4, 0, 0.15, 0)
+    tacoButton.Position = UDim2.new(0.05, 0, 0.25, 0)
+    tacoButton.Text = "🌮 ATIVAR TACO"
+    tacoButton.TextScaled = true
+    tacoButton.Font = Enum.Font.FredokaOne
+    tacoButton.TextColor3 = Color3.new(1, 1, 1)
+    tacoButton.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
+    tacoButton.Parent = eventosFrame
+    
+    tacoButton.MouseButton1Click:Connect(function()
+        if events.AdminEvent then
+            events.AdminEvent:FireServer("tacoEvent")
+            showNotification("🌮 Evento do Taco ativado!", Color3.fromRGB(255, 165, 0))
+        else
+            showNotification("❌ Erro: Evento admin não encontrado", Color3.fromRGB(255, 0, 0))
+        end
+    end)
+    
+    local rainbowButton = Instance.new("TextButton")
+    rainbowButton.Size = UDim2.new(0.4, 0, 0.15, 0)
+    rainbowButton.Position = UDim2.new(0.05, 0, 0.45, 0)
+    rainbowButton.Text = "🌈 ARCO-ÍRIS"
+    rainbowButton.TextScaled = true
+    rainbowButton.Font = Enum.Font.FredokaOne
+    rainbowButton.TextColor3 = Color3.new(1, 1, 1)
+    rainbowButton.BackgroundColor3 = Color3.fromRGB(255, 0, 255)
+    rainbowButton.Parent = eventosFrame
+    
+    rainbowButton.MouseButton1Click:Connect(function()
+        if events.AdminEvent then
+            events.AdminEvent:FireServer("rainbowEvent")
+            showNotification("🌈 Evento Arco-Íris ativado!", Color3.fromRGB(255, 0, 255))
+        else
+            showNotification("❌ Erro: Evento admin não encontrado", Color3.fromRGB(255, 0, 0))
+        end
+    end)
+    
+    -- Conteúdo da aba Blocos
+    local blocosFrame = tabFrames["Blocos"]
+    
+    local blockList = {
+        {Name = "Bloco_Dourado", Display = "Dourado"},
+        {Name = "Bloco_Diamante", Display = "Diamante"},
+        {Name = "Bloco_Rubi", Display = "Rubi"},
+        {Name = "Bloco_Esmeralda", Display = "Esmeralda"},
+        {Name = "Bloco_Safira", Display = "Safira"},
+        {Name = "Bloco_Cristal", Display = "Cristal"},
+        {Name = "Bloco_Titanio", Display = "Titânio"},
+        {Name = "Bloco_Platina", Display = "Platina"},
+        {Name = "Bloco_Universo", Display = "Universo"},
+        {Name = "Bloco_Galaxia", Display = "Galáxia"},
+        {Name = "Bloco_ArcoIris", Display = "Arco-Íris"}
+    }
+    
+    local blockPlayerName = Instance.new("TextBox")
+    blockPlayerName.Size = UDim2.new(0.4, 0, 0.1, 0)
+    blockPlayerName.Position = UDim2.new(0.05, 0, 0.05, 0)
+    blockPlayerName.PlaceholderText = "Jogador ou 'all'"
+    blockPlayerName.TextScaled = true
+    blockPlayerName.Font = Enum.Font.FredokaOne
+    blockPlayerName.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    blockPlayerName.TextColor3 = Color3.new(0, 0, 0)
+    blockPlayerName.Parent = blocosFrame
+    
+    for i, block in ipairs(blockList) do
+        local blockButton = Instance.new("TextButton")
+        blockButton.Size = UDim2.new(0.4, 0, 0.08, 0)
+        blockButton.Position = UDim2.new(0.05, 0, 0.17 + (i-1)*0.09, 0)
+        blockButton.Text = "Dar " .. block.Display
+        blockButton.TextScaled = true
+        blockButton.Font = Enum.Font.FredokaOne
+        blockButton.TextColor3 = Color3.new(1, 1, 1)
+        blockButton.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
+        blockButton.Parent = blocosFrame
+        
+        blockButton.MouseButton1Click:Connect(function()
+            local target = blockPlayerName.Text
+            if target ~= "" then
+                if events.AdminEvent then
+                    events.AdminEvent:FireServer("giveBlock", 0, target, 0, "", block.Name)
+                    showNotification("✅ " .. block.Display .. " dado para " .. target, Color3.fromRGB(0, 255, 0))
+                else
+                    showNotification("❌ Erro: Evento admin não encontrado", Color3.fromRGB(255, 0, 0))
+                end
+            else
+                showNotification("❌ Digite um nome de jogador", Color3.fromRGB(255, 0, 0))
+            end
+        end)
+    end
+end
+
+----- 11. SISTEMA DE TROCAS -----
+local function openTradeMenu()
+    animateButton(tradeButton)
+    
+    -- Verificar se já existe uma interface de troca
+    if screenGui:FindFirstChild("TradeGui") then
+        screenGui.TradeGui:Destroy()
+        return
+    end
+    
+    -- Criar interface de troca
+    local tradeGui = Instance.new("Frame")
+    tradeGui.Name = "TradeGui"
+    tradeGui.Size = UDim2.new(0.4, 0, 0.5, 0)
+    tradeGui.Position = UDim2.new(0.3, 0, 0.25, 0)
+    tradeGui.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    tradeGui.BorderSizePixel = 0
+    tradeGui.Parent = screenGui
+    
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0.1, 0)
+    title.Text = "🔄 SISTEMA DE TROCAS"
+    title.TextScaled = true
+    title.Font = Enum.Font.FredokaOne
+    title.TextColor3 = Color3.new(1, 1, 1)
+    title.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+    title.BorderSizePixel = 0
+    title.Parent = tradeGui
+    
+    local closeButton = Instance.new("TextButton")
+    closeButton.Size = UDim2.new(0.1, 0, 0.1, 0)
+    closeButton.Position = UDim2.new(0.9, 0, 0, 0)
+    closeButton.Text = "X"
+    closeButton.TextScaled = true
+    closeButton.Font = Enum.Font.FredokaOne
+    closeButton.TextColor3 = Color3.new(1, 1, 1)
+    closeButton.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+    closeButton.BorderSizePixel = 0
+    closeButton.Parent = tradeGui
+    
+    closeButton.MouseButton1Click:Connect(function()
+        tradeGui:Destroy()
+    end)
+    
+    -- Nome do jogador alvo
+    local playerNameLabel = Instance.new("TextLabel")
+    playerNameLabel.Size = UDim2.new(0.4, 0, 0.1, 0)
+    playerNameLabel.Position = UDim2.new(0.05, 0, 0.12, 0)
+    playerNameLabel.Text = "Jogador:"
+    playerNameLabel.TextScaled = true
+    playerNameLabel.Font = Enum.Font.FredokaOne
+    playerNameLabel.TextColor3 = Color3.new(1, 1, 1)
+    playerNameLabel.BackgroundTransparency = 1
+    playerNameLabel.Parent = tradeGui
+    
+    local playerNameInput = Instance.new("TextBox")
+    playerNameInput.Size = UDim2.new(0.5, 0, 0.1, 0)
+    playerNameInput.Position = UDim2.new(0.45, 0, 0.12, 0)
+    playerNameInput.PlaceholderText = "Nome do jogador"
+    playerNameInput.TextScaled = true
+    playerNameInput.Font = Enum.Font.FredokaOne
+    playerNameInput.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    playerNameInput.TextColor3 = Color3.new(0, 0, 0)
+    playerNameInput.Parent = tradeGui
+    
+    -- Bloco a oferecer
+    local offerLabel = Instance.new("TextLabel")
+    offerLabel.Size = UDim2.new(0.4, 0, 0.1, 0)
+    offerLabel.Position = UDim2.new(0.05, 0, 0.25, 0)
+    offerLabel.Text = "Oferecer:"
+    offerLabel.TextScaled = true
+    offerLabel.Font = Enum.Font.FredokaOne
+    offerLabel.TextColor3 = Color3.new(1, 1, 1)
+    offerLabel.BackgroundTransparency = 1
+    offerLabel.Parent = tradeGui
+    
+    local offerDropdown = Instance.new("TextButton")
+    offerDropdown.Size = UDim2.new(0.5, 0, 0.1, 0)
+    offerDropdown.Position = UDim2.new(0.45, 0, 0.25, 0)
+    offerDropdown.Text = "Selecionar bloco..."
+    offerDropdown.TextScaled = true
+    offerDropdown.Font = Enum.Font.FredokaOne
+    offerDropdown.TextColor3 = Color3.new(0, 0, 0)
+    offerDropdown.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    offerDropdown.Parent = tradeGui
+    
+    -- Bloco a receber
+    local requestLabel = Instance.new("TextLabel")
+    requestLabel.Size = UDim2.new(0.4, 0, 0.1, 0)
+    requestLabel.Position = UDim2.new(0.05, 0, 0.38, 0)
+    requestLabel.Text = "Receber:"
+    requestLabel.TextScaled = true
+    requestLabel.Font = Enum.Font.FredokaOne
+    requestLabel.TextColor3 = Color3.new(1, 1, 1)
+    requestLabel.BackgroundTransparency = 1
+    requestLabel.Parent = tradeGui
+    
+    local requestInput = Instance.new("TextBox")
+    requestInput.Size = UDim2.new(0.5, 0, 0.1, 0)
+    requestInput.Position = UDim2.new(0.45, 0, 0.38, 0)
+    requestInput.PlaceholderText = "Nome do bloco (ex: Bloco_Dourado)"
+    requestInput.TextScaled = true
+    requestInput.Font = Enum.Font.FredokaOne
+    requestInput.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    requestInput.TextColor3 = Color3.new(0, 0, 0)
+    requestInput.Parent = tradeGui
+    
+    -- Botão de troca
+    local tradeButton = Instance.new("TextButton")
+    tradeButton.Size = UDim2.new(0.4, 0, 0.15, 0)
+    tradeButton.Position = UDim2.new(0.3, 0, 0.55, 0)
+    tradeButton.Text = "🔄 PROPOR TROCA"
+    tradeButton.TextScaled = true
+    tradeButton.Font = Enum.Font.FredokaOne
+    tradeButton.TextColor3 = Color3.new(1, 1, 1)
+    tradeButton.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
+    tradeButton.Parent = tradeGui
+    
+    -- Lista de blocos para o dropdown
+    local blockNames = {
+        Bloco_Normal = "Normal",
+        Bloco_Dourado = "Dourado",
+        Bloco_Diamante = "Diamante",
+        Bloco_Rubi = "Rubi",
+        Bloco_Esmeralda = "Esmeralda",
+        Bloco_Safira = "Safira",
+        Bloco_Cristal = "Cristal",
+        Bloco_Titanio = "Titânio",
+        Bloco_Platina = "Platina",
+        Bloco_Universo = "Universo",
+        Bloco_Galaxia = "Galáxia",
+        Bloco_ArcoIris = "Arco-Íris"
+    }
+    
+    local selectedOfferBlock = ""
+    
+    -- Dropdown para selecionar bloco a oferecer
+    offerDropdown.MouseButton1Click:Connect(function()
+        local dropdownFrame = Instance.new("Frame")
+        dropdownFrame.Size = UDim2.new(0.5, 0, 0.4, 0)
+        dropdownFrame.Position = UDim2.new(0.45, 0, 0.35, 0)
+        dropdownFrame.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+        dropdownFrame.BorderSizePixel = 0
+        dropdownFrame.ZIndex = 10
+        dropdownFrame.Parent = tradeGui
+        
+        local scrollFrame = Instance.new("ScrollingFrame")
+        scrollFrame.Size = UDim2.new(1, 0, 1, 0)
+        scrollFrame.Position = UDim2.new(0, 0, 0, 0)
+        scrollFrame.BackgroundTransparency = 1
+        scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+        scrollFrame.Parent = dropdownFrame
+        
+        local yPosition = 0
+        for blockName, owned in pairs(ownedBlocks) do
+            if owned and blockName ~= "Bloco_Normal" then
+                local blockButton = Instance.new("TextButton")
+                blockButton.Size = UDim2.new(0.9, 0, 0, 30)
+                blockButton.Position = UDim2.new(0.05, 0, 0, yPosition)
+                blockButton.Text = blockNames[blockName] or blockName
+                blockButton.TextScaled = true
+                blockButton.Font = Enum.Font.FredokaOne
+                blockButton.TextColor3 = Color3.new(1, 1, 1)
+                blockButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+                blockButton.Parent = scrollFrame
+                
+                blockButton.MouseButton1Click:Connect(function()
+                    selectedOfferBlock = blockName
+                    offerDropdown.Text = blockNames[blockName] or blockName
+                    dropdownFrame:Destroy()
+                end)
+                
+                yPosition = yPosition + 35
+            end
+        end
+        
+        scrollFrame.CanvasSize = UDim2.new(0, 0, 0, yPosition)
+        
+        -- Fechar dropdown ao clicar fora
+        local function closeDropdown()
+            dropdownFrame:Destroy()
+        end
+        
+        task.delay(5, closeDropdown) -- Fechar automaticamente após 5 segundos
+    end)
+    
+    tradeButton.MouseButton1Click:Connect(function()
+        local targetPlayer = playerNameInput.Text
+        local requestBlock = requestInput.Text
+        
+        if targetPlayer == "" or selectedOfferBlock == "" or requestBlock == "" then
+            showNotification("❌ Preencha todos os campos!", Color3.fromRGB(255, 0, 0))
+            return
+        end
+        
+        if not ownedBlocks[selectedOfferBlock] then
+            showNotification("❌ Você não possui este bloco!", Color3.fromRGB(255, 0, 0))
+            return
+        end
+        
+        if events.TradeEvent then
+            events.TradeEvent:FireServer(targetPlayer, selectedOfferBlock, requestBlock)
+            showNotification("✅ Proposta de troca enviada para " .. targetPlayer, Color3.fromRGB(0, 255, 0))
+            tradeGui:Destroy()
+        else
+            showNotification("❌ Erro: Evento de troca não encontrado", Color3.fromRGB(255, 0, 0))
+        end
+    end)
+end
+
+----- 12. VERIFICAÇÃO DE EVENTOS -----
+-- Verificar se todos os eventos essenciais estão carregados
+task.spawn(function()
+    task.wait(3) -- Esperar um pouco para carregamento
+    
+    local essentialEvents = {"EquipBlockEvent", "BuildBlockEvent", "BlockSelectEvent"}
+    local missingEvents = {}
+    
+    for _, eventName in ipairs(essentialEvents) do
+        if not events[eventName] then
+            table.insert(missingEvents, eventName)
+        end
+    end
+    
+    if #missingEvents > 0 then
+        warn("❌ Eventos essenciais não carregados: " .. table.concat(missingEvents, ", "))
+        showNotification("❌ Erro de conexão com servidor", Color3.fromRGB(255, 0, 0))
+        
+        -- Tentar recarregar eventos
+        for _, eventName in ipairs(missingEvents) do
+            events[eventName] = getRemoteEvent(eventName)
+        end
+    end
+end)
+
+----- 13. FUNÇÃO DE DEBUG -----
+local function debugPlayerBlocks()
+    print("=== DEBUG PLAYER BLOCKS ===")
+    print("Current Block Type: " .. tostring(currentBlockType))
+    print("Owned Blocks:")
+    for blockName, owned in pairs(ownedBlocks) do
+        print("  " .. blockName .. ": " .. tostring(owned))
+    end
+    print("===========================")
+end
+
+-- Ativar debug com tecla F3 (opcional)
+game:GetService("UserInputService").InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.F3 then
+        debugPlayerBlocks()
+    end
+end)
+
+----- 14. INICIALIZAÇÃO FINAL -----
+-- Solicitar dados iniciais
+if events.RequestDataEvent then
+    events.RequestDataEvent:FireServer()
+else
+    showNotification("❌ Erro: Não foi possível conectar ao servidor", Color3.fromRGB(255, 0, 0))
+end
+
+-- Atualizar periodicamente a lista de blocos
+if events.BlockSelectEvent then
+    while task.wait(10) do
+        events.BlockSelectEvent:FireServer()
+    end
+end
+
+print("✅ Interface do jogador carregada com sucesso!")
